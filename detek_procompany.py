@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 from datetime import date, datetime
@@ -162,6 +161,105 @@ if hash_empresa:
 
 seleccion_empresa = st.selectbox("Selecciona la empresa:", empresas_visible, index=empresa_idx, key="empresa_select")
 empresa = empresa_mapa[seleccion_empresa]
+if st.sidebar.radio("Ir a:", ["Panel", "Dashboard"]) == "Dashboard":
+    st.markdown("##  Dashboard general")
+
+    # Total de empresas y equipos
+    total_empresas = len(equipos_df["empresa"].unique())
+    total_equipos = len(equipos_df["codigo"].unique())
+    st.markdown(f"-  **Empresas registradas:** `{total_empresas}`")
+    st.markdown(f"-  **Equipos registrados:** `{total_equipos}`")
+
+    # Partes más cambiadas
+    data_registro = pd.DataFrame(sheet_registro_data)
+    data_registro.columns = [col.lower().strip() for col in data_registro.columns]
+    cambios = data_registro["parte cambiada"].dropna().str.split(";").explode()
+    cambios = cambios[cambios.str.strip() != ""]  # eliminar vacíos
+    partes_frecuentes = cambios.value_counts().head(5)
+
+    st.markdown("###  Partes más cambiadas")
+    for parte, count in partes_frecuentes.items():
+        st.markdown(f"- `{parte}`: `{count}` cambios")
+
+    # Equipos críticos
+    st.markdown("###  Equipos con partes en estado crítico")
+    equipos_criticos = []
+
+    for _, row in equipos_df.iterrows():
+        empresa_k = row["empresa"]
+        codigo_k = row["codigo"]
+        consumibles = [c.strip() for c in str(row.get("consumibles", "")).split(",")]
+        vida_util_str = str(row.get("vida_util", ""))
+        vidas_utiles = [int(v.strip()) if v.strip().isdigit() else VIDA_UTIL_DEFECTO for v in vida_util_str.split(",")]
+
+        data_equipo = data_registro[(data_registro["empresa"] == empresa_k) & (data_registro["codigo"] == codigo_k)]
+        estado_partes = {parte: 0 for parte in consumibles}
+
+        for _, fila in data_equipo.iterrows():
+            horas = fila.get("hora de uso", 0)
+            try:
+                horas = float(horas)
+            except:
+                horas = 0
+            partes_cambiadas = str(fila.get("parte cambiada", "")).split(";")
+            for parte in estado_partes:
+                if parte in partes_cambiadas:
+                    estado_partes[parte] = 0
+                else:
+                    estado_partes[parte] += horas
+
+        for idx, parte in enumerate(consumibles):
+            usadas = estado_partes[parte]
+            vida = vidas_utiles[idx] if idx < len(vidas_utiles) else VIDA_UTIL_DEFECTO
+            if vida - usadas <= 24:
+                equipos_criticos.append(f"{empresa_k} - {codigo_k}")
+                break
+
+    if equipos_criticos:
+        for eq in equipos_criticos:
+            st.markdown(f"- ⚠️ `{eq}`")
+    else:
+        st.markdown("- ✅ Sin equipos en estado crítico.")
+
+    # Equipos con más horas acumuladas
+    st.markdown("### ⏱️ Top 5 equipos con más horas acumuladas")
+    horas_acumuladas = {}
+
+    for _, fila in data_registro.iterrows():
+        key = f"{fila['empresa']} - {fila['codigo']}"
+        horas = fila.get("hora de uso", 0)
+        try:
+            horas = float(horas)
+        except:
+            horas = 0
+        horas_acumuladas[key] = horas_acumuladas.get(key, 0) + horas
+
+    top_horas = sorted(horas_acumuladas.items(), key=lambda x: x[1], reverse=True)[:5]
+    for equipo, horas in top_horas:
+        st.markdown(f"- 🕒 `{equipo}`: `{horas:.1f}` horas")
+
+    # Simulación exportación a PDF
+    dashboard_text = "Resumen Dashboard DeTEK PRO Company\n\n"
+    dashboard_text += f"Empresas registradas: {total_empresas}\n"
+    dashboard_text += f"Equipos registrados: {total_equipos}\n\n"
+    dashboard_text += "Partes más cambiadas:\n"
+    for parte, count in partes_frecuentes.items():
+        dashboard_text += f"- {parte}: {count} cambios\n"
+    dashboard_text += "\nEquipos críticos:\n"
+    dashboard_text += "\n".join(equipos_criticos or ["Sin equipos en estado crítico"]) + "\n"
+    dashboard_text += "\nTop 5 equipos por horas acumuladas:\n"
+    for equipo, horas in top_horas:
+        dashboard_text += f"- {equipo}: {horas:.1f} horas\n"
+
+    st.download_button(
+        label=" Exportar informe PDF",
+        data=dashboard_text,
+        file_name="informe_dashboard.txt",  # PDF simulado, luego se puede convertir
+        mime="text/plain"
+    )
+
+    st.stop()
+
 
 # Al cambiar la empresa, actualizar el hash de la URL con JS
 empresa_slug = slugify_empresa(empresa)
@@ -573,4 +671,3 @@ with st.form("registro_form"):
         ]
         sheet_registro.append_row(fila)
         st.success("✅ Registro guardado correctamente.")
-   
