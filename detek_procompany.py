@@ -140,8 +140,39 @@ for _, row in empresas_df.iterrows():
         empresas_visible.append(f"{nombre}{alerta}")
         empresa_mapa[f"{nombre}{alerta}"] = nombre
 
-seleccion_empresa = st.selectbox("Selecciona la empresa:", empresas_visible, key="empresa_select")
+# --- SINCRONIZAR EMPRESA CON HASH DE LA URL ---
+import streamlit.components.v1 as components
+
+# Obtener el hash de la URL usando query_params (nuevo API)
+hash_empresa = st.query_params.get("empresa_slug", [None])[0] if hasattr(st, 'query_params') else None
+
+# Función para obtener el slug de una empresa
+def slugify_empresa(nombre):
+    import urllib.parse
+    return urllib.parse.quote_plus(nombre.strip().replace(' ', '_').lower())
+
+# Buscar el índice de la empresa por el hash (si existe)
+empresa_idx = 0
+if hash_empresa:
+    for idx, visible in enumerate(empresas_visible):
+        nombre = empresa_mapa[visible]
+        if slugify_empresa(nombre) == hash_empresa:
+            empresa_idx = idx
+            break
+
+seleccion_empresa = st.selectbox("Selecciona la empresa:", empresas_visible, index=empresa_idx, key="empresa_select")
 empresa = empresa_mapa[seleccion_empresa]
+
+# Al cambiar la empresa, actualizar el hash de la URL con JS
+empresa_slug = slugify_empresa(empresa)
+components.html(f"""
+    <script>
+        const empresaSlug = '{empresa_slug}';
+        if (window.location.hash.replace('#','') !== empresaSlug) {{
+            window.location.hash = empresaSlug;
+        }}
+    </script>
+""", height=0)
 # 2. Mostrar layout y QR en un expander debajo de la empresa
 info_empresa_row = empresas_df[empresas_df["empresa"].str.strip().str.lower() == empresa.strip().lower()]
 if not info_empresa_row.empty:
@@ -168,6 +199,10 @@ if not info_empresa_row.empty:
     layout_url_view = get_drive_viewable_url(layout_url)
     qr_url_view = get_drive_viewable_url(qr_url)
     parametrosproce_url_view = get_drive_viewable_url(parametrosproce_url)
+    # Generar link único por empresa (slug amigable)
+    import urllib.parse
+    empresa_slug = urllib.parse.quote_plus(empresa.strip().replace(' ', '_').lower())
+    empresa_link = f"https://detekprocompany.streamlit.app/#{empresa_slug}"
     with st.expander("Layout y QR de la empresa", expanded=True):
         st.markdown(f'''
             <div style="display: flex; justify-content: center; gap: 1em; margin-top: 1em; flex-wrap: wrap;">
