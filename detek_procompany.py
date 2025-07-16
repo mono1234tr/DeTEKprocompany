@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 from datetime import date, datetime
@@ -7,9 +8,50 @@ from google.oauth2.service_account import Credentials
 import gspread
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
-import io
 
-# --- HOJA DE TAREAS ---
+# --- CACHÉ EN MEMORIA PARA GOOGLE SHEETS ---
+@st.cache_data(show_spinner=False, ttl=5, max_entries=30)
+def cached_get_all_records(sheet_key, worksheet_name):
+    client = get_gspread_client()
+    ws = client.open_by_key(sheet_key).worksheet(worksheet_name)
+    return ws.get_all_records()
+
+# --- CACHÉ PARA CLIENTE GSPREAD ---
+@st.cache_resource(show_spinner=False)
+def get_gspread_client():
+    service_account_info = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
+    SCOPE = [
+        "https://www.googleapis.com/auth/drive",
+        "https://www.googleapis.com/auth/spreadsheets"
+    ]
+    creds = Credentials.from_service_account_info(service_account_info, scopes=SCOPE)
+    return gspread.authorize(creds)
+
+# --- LOGO INICIO ---
+import re
+def get_drive_thumbnail_url(url):
+    """Convierte un enlace de Google Drive a un enlace de thumbnail visualizable."""
+    if not isinstance(url, str):
+        return url
+    patterns = [
+        r"/file/d/([\w-]+)",
+        r"id=([\w-]+)",
+        r"https://drive.google.com/open\?id=([\w-]+)",
+        r"https://drive.google.com/uc\?id=([\w-]+)"
+    ]
+    for pat in patterns:
+        match = re.search(pat, url)
+        if match:
+            file_id = match.group(1)
+            return f"https://drive.google.com/thumbnail?id={file_id}"
+    return url
+
+logo_url = get_drive_thumbnail_url("https://drive.google.com/uc?export=view&id=1NQ_sRx0rPyIj5kOPsDOJcBvBTbepcVUJ")
+st.markdown(f"""
+    <div style='display: flex; justify-content: center; align-items: center; margin-bottom: 1em;'>
+        <img src='{logo_url}' width='180' style='display: block;'/>
+    </div>
+""", unsafe_allow_html=True)
 def get_or_create_sheet_tareas(client, SHEET_ID):
     try:
         sheet_tareas = client.open_by_key(SHEET_ID).worksheet("Tareas")
@@ -18,222 +60,168 @@ def get_or_create_sheet_tareas(client, SHEET_ID):
         sheet_tareas.append_row(["empresa", "tarea", "asignada_por", "fecha_asignacion", "completada", "fecha_completada"])
     return sheet_tareas
 
-def upload_to_drive(file, filename, mimetype, folder_id, creds):
-    service = build('drive', 'v3', credentials=creds)
-    file_metadata = {
-        'name': filename,
-        'parents': [folder_id]
-    }
-    media = MediaIoBaseUpload(io.BytesIO(file.read()), mimetype=mimetype)
-    uploaded = service.files().create(
-        body=file_metadata,
-        media_body=media,
-        fields='id,webContentLink,webViewLink'
-    ).execute()
-    return uploaded.get('id'), uploaded.get('webContentLink'), uploaded.get('webViewLink')
+
 
 
 # --- CONFIGURACIÓN GOOGLE SHEETS Y DRIVE ---
-service_account_info = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
-# Cambia el scope para permitir acceso a Google Drive completo
-SCOPE = [
-    "https://www.googleapis.com/auth/drive",
-    "https://www.googleapis.com/auth/spreadsheets"
-]
-creds = Credentials.from_service_account_info(service_account_info, scopes=SCOPE)
-client = gspread.authorize(creds)
 
-# --- HOJAS DE CÁLCULO ---
+client = get_gspread_client()
 SHEET_ID = "1288rxOwtZDI3A7kuLnR4AXaI-GKt6YizeZS_4ZvdTnQ"
-sheet_registro = client.open_by_key(SHEET_ID).worksheet("Hoja 1")
-sheet_equipos = client.open_by_key(SHEET_ID).worksheet("Equipos")
-sheet_empresas = client.open_by_key(SHEET_ID).worksheet("Empresas")
+
+# --- HOJAS PRINCIPALES USANDO CACHÉ (lectura) Y OBJETOS PARA ESCRITURA ---
+sheet_registro_data = cached_get_all_records(SHEET_ID, "Hoja 1")
+sheet_empresas_data = cached_get_all_records(SHEET_ID, "Empresas")
 try:
-    sheet_chat = client.open_by_key(SHEET_ID).worksheet("Chat")
+    sheet_chat_data = cached_get_all_records(SHEET_ID, "Chat")
 except:
-    sheet_chat = client.open_by_key(SHEET_ID).add_worksheet(title="Chat", rows="1000", cols="4")
-    sheet_chat.append_row(["fecha", "usuario", "mensaje", "empresa"])
-# --- HOJA DE TAREAS ---
+    ws = client.open_by_key(SHEET_ID).add_worksheet(title="Chat", rows="1000", cols="4")
+    ws.append_row(["fecha", "usuario", "mensaje", "empresa"])
+    sheet_chat_data = []
+try:
+    sheet_tareas_data = cached_get_all_records(SHEET_ID, "Tareas")
+except:
+    ws = client.open_by_key(SHEET_ID).add_worksheet(title="Tareas", rows="1000", cols="6")
+    ws.append_row(["empresa", "tarea", "asignada_por", "fecha_asignacion", "completada", "fecha_completada"])
+    sheet_tareas_data = []
 sheet_tareas = get_or_create_sheet_tareas(client, SHEET_ID)
+# Objetos SOLO para escritura
+sheet_chat = client.open_by_key(SHEET_ID).worksheet("Chat")
+sheet_registro = client.open_by_key(SHEET_ID).worksheet("Hoja 1")
 
 # --- VIDA ÚTIL POR DEFECTO ---
 VIDA_UTIL_DEFECTO = 700
 
-# --- CARGAR DATOS DE EQUIPOS ---
-equipos_df = pd.DataFrame(sheet_equipos.get_all_records())
+# --- NUEVO MODELO: UNA SOLA HOJA 'Equipos' ---
+sheet_equipos_data = cached_get_all_records(SHEET_ID, "Equipos")
+equipos_df = pd.DataFrame(sheet_equipos_data)
 equipos_df.columns = [col.lower().strip() for col in equipos_df.columns]
 
-# --- CARGAR INFORMACIÓN DE EMPRESAS ---
-empresas_df = pd.DataFrame(sheet_empresas.get_all_records())
+# --- EMPRESAS ÚNICAS Y ALERTAS ---
+empresas_df = pd.DataFrame(sheet_empresas_data)
 empresas_df.columns = [col.lower().strip() for col in empresas_df.columns]
-
-EQUIPOS_EMPRESA = {}
-VIDA_UTIL = {}
-
-for _, row in equipos_df.iterrows():
-    empresa = row["empresa"].strip()
-    codigo = row["codigo"].strip()
-    descripcion = row["descripcion"].strip()
-    consumibles = [c.strip() for c in row["consumibles"].split(",")]
-
-    if empresa not in EQUIPOS_EMPRESA:
-        EQUIPOS_EMPRESA[empresa] = {}
-
-    EQUIPOS_EMPRESA[empresa][codigo] = {
-        "descripcion": descripcion,
-        "consumibles": consumibles
-    }
-
-    # Leer vida útil desde la hoja
-    vidas_utiles = [int(str(v).strip()) if str(v).strip().isdigit() else VIDA_UTIL_DEFECTO for v in str(row.get("vida_util", "")).split(",")]
-    for c, vida in zip(consumibles, vidas_utiles):
-        VIDA_UTIL[c] = vida
-
-
-# --- INTERFAZ ---
-st.set_page_config(page_title="DeTEK PRO Company", layout="wide")
-
-
-
- #---------------LOGO SOLO (THUMBNAIL) -------------
-st.markdown(
-    """
-    <div style='text-align:center; margin-top:10px;'>
-        <img src='https://drive.google.com/thumbnail?id=1NQ_sRx0rPyIj5kOPsDOJcBvBTbepcVUJ' width='200' style='max-width:80vw;'>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
-st.markdown("---")
-
-# --- CARGAR REGISTROS EXISTENTES ---
-data = pd.DataFrame(sheet_registro.get_all_records())
-data.columns = [col.lower().strip() for col in data.columns]
-
-st.sidebar.title("Navegación")
-pagina = st.sidebar.radio("Ir a:", ["Registro de equipo","Dashboard"])
-
-if pagina == "Dashboard":
-    st.markdown("Dashboard general")
-
-    # Total de empresas y equipos
-    total_empresas = len(EQUIPOS_EMPRESA)
-    total_equipos = sum(len(equipos) for equipos in EQUIPOS_EMPRESA.values())
-
-    st.markdown(f"-  **Empresas registradas:** `{total_empresas}`")
-    st.markdown(f"-  **Equipos registrados:** `{total_equipos}`")
-
-    # Partes más cambiadas
-    cambios = data["parte cambiada"].dropna().str.split(";").explode()
-    cambios = cambios[cambios.str.strip() != ""]  # eliminar vacíos
-    partes_frecuentes = cambios.value_counts().head(5)
-
-    st.markdown("Partes más cambiadas")
-    for parte, count in partes_frecuentes.items():
-        st.markdown(f"- {parte}: `{count}` cambios")
-
-    # Equipos críticos
-    st.markdown("Equipos con partes en estado crítico")
-    equipos_criticos = []
-
-    for empresa_k, equipos_k in EQUIPOS_EMPRESA.items():
-        for codigo_k, detalles_k in equipos_k.items():
-            consumibles_k = detalles_k["consumibles"]
-            data_k = data[(data["empresa"] == empresa_k) & (data["codigo"] == codigo_k)]
-            estado_partes_k = {parte: 0 for parte in consumibles_k}
-
-            for _, fila in data_k.iterrows():
+empresas_visible = []
+empresa_mapa = {}
+for _, row in empresas_df.iterrows():
+    if 'empresa' in row:
+        nombre = row['empresa']
+        alerta = ''
+        equipos_empresa = equipos_df[equipos_df["empresa"].str.strip().str.lower() == nombre.strip().lower()]
+        for _, eq_row in equipos_empresa.iterrows():
+            consumibles = [c.strip() for c in str(eq_row.get('consumibles','')).split(",") if c.strip()]
+            vida_util_str = str(eq_row.get('vida_util',''))
+            vidas_utiles = [int(v.strip()) if v.strip().isdigit() else 700 for v in vida_util_str.split(",")]
+            data_registro = pd.DataFrame(sheet_registro_data)
+            data_registro.columns = [col.lower().strip() for col in data_registro.columns]
+            data_equipo = data_registro[(data_registro["empresa"].str.strip().str.lower() == nombre.strip().lower()) & (data_registro["codigo"] == eq_row['codigo'])] if not data_registro.empty else pd.DataFrame()
+            estado_partes = {parte: 0 for parte in consumibles}
+            for _, fila in data_equipo.iterrows():
                 horas = fila.get("hora de uso", 0)
                 try:
                     horas = float(horas)
                 except:
                     horas = 0
                 partes_cambiadas = str(fila.get("parte cambiada", "")).split(";")
-                for parte in estado_partes_k:
+                for parte in consumibles:
                     if parte in partes_cambiadas:
-                        estado_partes_k[parte] = 0
+                        estado_partes[parte] = 0
                     else:
-                        estado_partes_k[parte] += horas
-
-            for parte, usadas in estado_partes_k.items():
-                limite = VIDA_UTIL.get(parte, VIDA_UTIL_DEFECTO)
-                if limite - usadas <= 24:
-                    equipos_criticos.append(f"{empresa_k} - {codigo_k}")
+                        estado_partes[parte] += horas
+            for idx, parte in enumerate(consumibles):
+                usadas = estado_partes.get(parte, 0)
+                vida_util_val = vidas_utiles[idx] if idx < len(vidas_utiles) else 700
+                restantes = max(vida_util_val - usadas, 0)
+                if restantes <= 1:
+                    alerta = ' 🔴'
                     break
+                elif restantes <= 10 and not alerta:
+                    alerta = ' 🟡'
+            if alerta:
+                break
+        empresas_visible.append(f"{nombre}{alerta}")
+        empresa_mapa[f"{nombre}{alerta}"] = nombre
 
-    if equipos_criticos:
-        for eq in equipos_criticos:
-            st.markdown(f"- ⚠️ `{eq}`")
-    else:
-        st.markdown("- ✅ Sin equipos en estado crítico.")
-
-    # Equipos con más horas acumuladas
-    st.markdown("###  Top 5 equipos con más horas acumuladas")
-
-    horas_acumuladas = {}
-
-    for _, fila in data.iterrows():
-        key = f"{fila['empresa']} - {fila['codigo']}"
-        horas = fila.get("hora de uso", 0)
-        try:
-            horas = float(horas)
-        except:
-            horas = 0
-        horas_acumuladas[key] = horas_acumuladas.get(key, 0) + horas
-
-    top_horas = sorted(horas_acumuladas.items(), key=lambda x: x[1], reverse=True)[:5]
-    for equipo, horas in top_horas:
-        st.markdown(f"- 🕒 `{equipo}`: `{horas:.1f}` horas")
-
-    # --- Generar resumen completo para el informe ---
-    resumen = []
-    resumen.append("INFORME DEL DASHBOARD DE DeTEK PRO Company\n")
-    resumen.append(f"Fecha de generación: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-    resumen.append(f"Empresas registradas: {total_empresas}")
-    resumen.append(f"Equipos registrados: {total_equipos}\n")
-
-    resumen.append("PARTES MÁS CAMBIADAS:")
-    for parte, count in partes_frecuentes.items():
-        resumen.append(f"- {parte}: {count} cambios")
-    resumen.append("")
-
-    resumen.append("EQUIPOS CON PARTES EN ESTADO CRÍTICO:")
-    if equipos_criticos:
-        for eq in equipos_criticos:
-            resumen.append(f"- {eq}")
-    else:
-        resumen.append("- Sin equipos en estado crítico.")
-    resumen.append("")
-
-    resumen.append("TOP 5 EQUIPOS CON MÁS HORAS ACUMULADAS:")
-    for equipo, horas in top_horas:
-        resumen.append(f"- {equipo}: {horas:.1f} horas")
-    resumen.append("")
-
-    resumen_txt = "\n".join(resumen)
-
-    st.markdown("### Exportar informe")
-    st.download_button(
-        label="Exportar informe TXT",
-        data=resumen_txt,
-        file_name="informe_dashboard.txt"
-    )
-
-    st.stop()
+seleccion_empresa = st.selectbox("Selecciona la empresa:", empresas_visible, key="empresa_select")
+empresa = empresa_mapa[seleccion_empresa]
+# 2. Mostrar layout y QR en un expander debajo de la empresa
+info_empresa_row = empresas_df[empresas_df["empresa"].str.strip().str.lower() == empresa.strip().lower()]
+if not info_empresa_row.empty:
+    info_empresa_row = info_empresa_row.squeeze()
+    layout_url = info_empresa_row.get("layout_url", "")
+    qr_url = info_empresa_row.get("qr_url", "")
+    parametrosproce_url = info_empresa_row.get("parametrosproce_url", "")
+    # Convertir el link de layout, qr y parametrosproce si es de Google Drive
+    def get_drive_viewable_url(url):
+        if not isinstance(url, str):
+            return url
+        patterns = [
+            r"/file/d/([\w-]+)",
+            r"id=([\w-]+)",
+            r"https://drive.google.com/open\?id=([\w-]+)",
+            r"https://drive.google.com/uc\?id=([\w-]+)"
+        ]
+        for pat in patterns:
+            match = re.search(pat, url)
+            if match:
+                file_id = match.group(1)
+                return f"https://drive.google.com/uc?export=view&id={file_id}"
+        return url
+    layout_url_view = get_drive_viewable_url(layout_url)
+    qr_url_view = get_drive_viewable_url(qr_url)
+    parametrosproce_url_view = get_drive_viewable_url(parametrosproce_url)
+    with st.expander("Layout y QR de la empresa", expanded=True):
+        st.markdown(f'''
+            <div style="display: flex; justify-content: center; gap: 1em; margin-top: 1em; flex-wrap: wrap;">
+                <a href="{layout_url_view}" target="_blank">
+                    <button style="background:#0072C6;color:white;padding:0.5em 1.2em;border:none;border-radius:1.5em;font-weight:bold;font-size:1em;cursor:pointer;">Ver Layout</button>
+                </a>
+                <a href="{qr_url_view}" target="_blank">
+                    <button style="background:#00BDAD;color:white;padding:0.5em 1.2em;border:none;border-radius:1.5em;font-weight:bold;font-size:1em;cursor:pointer;">Ver QR</button>
+                </a>
+                <a href="{parametrosproce_url_view}" target="_blank">
+                    <button style="background:#F39C12;color:white;padding:0.5em 1.2em;border:none;border-radius:1.5em;font-weight:bold;font-size:1em;cursor:pointer;">Parámetros de Procesamiento</button>
+                </a>
+            </div>
+        ''', unsafe_allow_html=True)
 
 
-# --- GENERAR LISTA DE EMPRESAS CON ALERTA GLOBAL ---
-empresas_visible = []
-empresa_mapa = {}
+# 3. Selección de zona (ahora desde la columna 'zona' de la hoja 'equipos')
 
-for empresa in sorted(EQUIPOS_EMPRESA.keys()):
-    equipos = EQUIPOS_EMPRESA[empresa]
-    alerta = "🟢"
-    for codigo, detalles in equipos.items():
-        consumibles = detalles["consumibles"]
-        data_equipo = data[(data["empresa"] == empresa) & (data["codigo"] == codigo)]
+zonas_unicas = equipos_df["zona"].dropna().unique()
+zonas_visibles = []
+zonas_alerta_map = {}
+def zona_amigable(z):
+    return z.replace('_', ' ').title() if isinstance(z, str) else z
+for zona in zonas_unicas:
+    equipos_zona = equipos_df[(equipos_df["empresa"].str.strip().str.lower() == empresa.strip().lower()) & (equipos_df["zona"] == zona)]
+    alerta = ''
+    if equipos_zona.empty:
+        alerta = ' ⚠️'
+    visible = f"{zona_amigable(zona)}{alerta}"
+    zonas_visibles.append(visible)
+    zonas_alerta_map[visible] = zona
+
+zona_visible = st.selectbox("Selecciona la zona:", zonas_visibles, key="zona_select")
+nombre_zona = zonas_alerta_map[zona_visible]
+
+# Filtrar equipos por empresa y zona seleccionada
+equipos_zona_df = equipos_df[(equipos_df["empresa"].str.strip().str.lower() == empresa.strip().lower()) & (equipos_df["zona"] == nombre_zona)]
+
+# --- EQUIPO: agregar alerta si algún consumible está en estado crítico o advertencia ---
+equipos_lista = []
+equipos_alerta_map = {}
+if not equipos_zona_df.empty:
+    for _, row in equipos_zona_df.iterrows():
+        nombre = f"{row['codigo']} - {row['descripcion']}"
+        # Revisar estado de consumibles si existen
+        alerta = ''
+        consumibles = [c.strip() for c in str(row.get('consumibles','')).split(",") if c.strip()]
+        vida_util_str = str(row.get('vida_util',''))
+        vidas_utiles = [int(v.strip()) if v.strip().isdigit() else 700 for v in vida_util_str.split(",")]
+        # Buscar registros de uso
+        data_registro = pd.DataFrame(sheet_registro_data)
+        data_registro.columns = [col.lower().strip() for col in data_registro.columns]
+        data_equipo = data_registro[(data_registro["empresa"].str.strip().str.lower() == empresa.strip().lower()) & (data_registro["codigo"] == row['codigo'])] if not data_registro.empty else pd.DataFrame()
         estado_partes = {parte: 0 for parte in consumibles}
-
         for _, fila in data_equipo.iterrows():
             horas = fila.get("hora de uso", 0)
             try:
@@ -241,46 +229,51 @@ for empresa in sorted(EQUIPOS_EMPRESA.keys()):
             except:
                 horas = 0
             partes_cambiadas = str(fila.get("parte cambiada", "")).split(";")
-            for parte in estado_partes:
+            for parte in consumibles:
                 if parte in partes_cambiadas:
                     estado_partes[parte] = 0
                 else:
                     estado_partes[parte] += horas
-
-        for parte, usadas in estado_partes.items():
-            limite = VIDA_UTIL.get(parte, VIDA_UTIL_DEFECTO)
-            restantes = limite - usadas
-            if restantes <= 0.5:
-                alerta = "⚠️"
+        for idx, parte in enumerate(consumibles):
+            usadas = estado_partes.get(parte, 0)
+            vida_util_val = vidas_utiles[idx] if idx < len(vidas_utiles) else 700
+            restantes = max(vida_util_val - usadas, 0)
+            if restantes <= 0.5 or restantes <= 192:
+                alerta = ' 🔴'
                 break
-            elif restantes <= 192 and alerta != "⚠️":
-                alerta = "🔴"
+            elif restantes <= 360 and not alerta:
+                alerta = ' 🟡'
+        equipos_lista.append(f"{nombre}{alerta}")
+        equipos_alerta_map[f"{nombre}{alerta}"] = nombre
+    equipo_seleccionado = st.selectbox("Selecciona el equipo:", equipos_lista, key="equipo_select")
+    equipo_sel_nombre = equipos_alerta_map.get(equipo_seleccionado, None)
+else:
+    equipo_seleccionado = None
+    equipo_sel_nombre = None
+    st.info("No hay equipos para esta zona.")
 
-        if alerta in ["⚠️", "🔴"]:
-            break
+# --- EXPANDER CON INFO DEL EQUIPO SELECCIONADO ---
 
-    visible = f"{alerta} {empresa}"
-    empresas_visible.append(visible)
-    empresa_mapa[visible] = empresa
-
-# --- SELECTBOX DE EMPRESA ---
-seleccion_empresa = st.selectbox("Selecciona la empresa:", empresas_visible)
-empresa = empresa_mapa[seleccion_empresa]
-
-
-# --- INFO DE LA EMPRESA EN SIDEBAR ---
-info_match = empresas_df[empresas_df["empresa"] == empresa]
-info_empresa = info_match.iloc[0].to_dict() if not info_match.empty else {}
+if equipo_sel_nombre:
+    # Extraer el código del string seleccionado (formato: 'codigo - descripcion')
+    codigo_sel = equipo_sel_nombre.split(' - ')[0].strip()
+    op_row = equipos_zona_df[equipos_zona_df["codigo"] == codigo_sel]
+    op_equipo = op_row["op"].values[0] if "op" in op_row.columns and not op_row.empty else "No disponible"
+    descripcion = op_row["descripcion"].values[0] if not op_row.empty else "No disponible"
+    consumibles_equipo = [c.strip() for c in op_row["consumibles"].values[0].split(",")] if not op_row.empty else []
+else:
+    op_row = pd.DataFrame()
+    op_equipo = "No disponible"
+    descripcion = "No disponible"
+    consumibles_equipo = []
 
 # --- INFORMACIÓN DE LA EMPRESA (sidebar) ---
 st.sidebar.markdown("### 🏢 Información de la empresa seleccionada")
 st.sidebar.markdown(f"**Empresa:** {empresa}")
 
-# Buscar coincidencia robusta
 info_match = empresas_df[empresas_df["empresa"].str.strip().str.lower() == empresa.strip().lower()]
 info_empresa = info_match.squeeze() if not info_match.empty else {}
 
-# Mostrar información actual
 st.sidebar.markdown(f"**Encargado:** {info_empresa.get('encargado', 'No disponible')}")
 st.sidebar.markdown(f"**Contacto:** {info_empresa.get('contacto', 'No disponible')}")
 st.sidebar.markdown(f"**Ubicación:** {info_empresa.get('ubicacion', 'No disponible')}")
@@ -291,7 +284,10 @@ st.sidebar.markdown("---")
 st.sidebar.markdown("### 📋 Tareas de la empresa")
 
 # Cargar todas las tareas de la empresa
-tareas_df = pd.DataFrame(sheet_tareas.get_all_records())
+try:
+    tareas_df = pd.DataFrame(sheet_tareas_data)
+except:
+    tareas_df = pd.DataFrame()
 cols_needed = {"empresa", "tarea", "descripcion", "fecha_asignacion", "completada"}
 if not tareas_df.empty and cols_needed.issubset(set(tareas_df.columns)):
     tareas_empresa = tareas_df[tareas_df["empresa"].str.strip().str.lower() == empresa.strip().lower()]
@@ -335,7 +331,7 @@ with st.sidebar.expander("➕ Agregar nueva tarea"):
 
 # --- CHAT EN LÍNEA ENTRE APPS ---
 # --- INDICADOR DE MENSAJES NUEVOS ---
-chat_df_indicator = pd.DataFrame(sheet_chat.get_all_records())
+chat_df_indicator = pd.DataFrame(sheet_chat_data)
 chat_df_indicator.columns = [col.lower().strip() for col in chat_df_indicator.columns]
 mensajes_empresa = chat_df_indicator[chat_df_indicator["empresa"] == empresa] if not chat_df_indicator.empty and "empresa" in chat_df_indicator.columns else pd.DataFrame()
 ultimo_mensaje = mensajes_empresa["fecha"].max() if not mensajes_empresa.empty and "fecha" in mensajes_empresa.columns else None
@@ -357,7 +353,7 @@ if hay_nuevo:
     chat_title += " <span style='color:red;font-size:1.2em;'>●</span>"
 
 with st.sidebar.expander(chat_title, expanded=False):
-    chat_df = pd.DataFrame(sheet_chat.get_all_records())
+    chat_df = pd.DataFrame(sheet_chat_data)
     if not chat_df.empty:
         chat_df.columns = [col.lower().strip() for col in chat_df.columns]
         if "empresa" in chat_df.columns and "usuario" in chat_df.columns and "mensaje" in chat_df.columns and "fecha" in chat_df.columns:
@@ -385,117 +381,141 @@ with st.sidebar.expander(chat_title, expanded=False):
             time.sleep(1)
             st.experimental_rerun()
 
-# --- EQUIPOS DISPONIBLES ---
-equipos_empresa = EQUIPOS_EMPRESA.get(empresa, {})
-if not equipos_empresa:
-    st.warning("⚠️ Esta empresa no tiene equipos asignados.")
-    st.stop()
-
-# --- SELECTBOX DE EQUIPO ---
-selector_visible = []
-estado_equipos = {}
-
-for codigo, detalles in equipos_empresa.items():
-    descripcion = detalles["descripcion"]
-    consumibles = detalles["consumibles"]
-    estado_icono = "🟢"
-    data_equipo = data[(data["empresa"] == empresa) & (data["codigo"] == codigo)]
-    estado_partes = {parte: 0 for parte in consumibles}
-
-    for _, fila in data_equipo.iterrows():
-        horas = fila.get("hora de uso", 0)
-        try:
-            horas = float(horas)
-        except:
-            horas = 0
-        partes_cambiadas = str(fila.get("parte cambiada", "")).split(";")
-        for parte in estado_partes:
-            if parte in partes_cambiadas:
-                estado_partes[parte] = 0
-            else:
-                estado_partes[parte] += horas
-
-    for parte, usadas in estado_partes.items():
-        limite = VIDA_UTIL.get(parte, VIDA_UTIL_DEFECTO)
-        restantes = limite - usadas
-        if restantes <= 0.5:
-            estado_icono = "⚠️"
-            break
-        elif restantes <= 192 and estado_icono != "⚠️":
-            estado_icono = "🔴"
-
-    visible = f"{estado_icono} {codigo} - {descripcion}"
-    selector_visible.append(visible)
-    estado_equipos[visible] = codigo
-# --- SELECCIÓN DE PROCESO ---
-seleccion = st.selectbox("Selecciona el proceso:", selector_visible)
-codigo = estado_equipos[seleccion]
-op_row = equipos_df[
-    (equipos_df["empresa"].str.strip().str.lower() == empresa.strip().lower()) &
-    (equipos_df["codigo"].str.strip().str.lower() == codigo.strip().lower())
-]
-op_equipo = op_row["op"].values[0] if not op_row.empty else "No disponible"
-descripcion = equipos_empresa[codigo]["descripcion"]
-consumibles_equipo = equipos_empresa[codigo]["consumibles"]
 # --- INFORMACIÓN MULTIMEDIA DEL EQUIPO EN EXPANDER ---
-with st.expander("Información adicional del equipo", expanded=False):
-    # --- FOTO DEL EQUIPO ---
-    st.markdown("####  Foto del equipo")
 
+if equipo_seleccionado and isinstance(equipo_seleccionado, str) and not op_row.empty:
+    import re
     def get_drive_direct_url(url):
-        """Convierte un enlace de Google Drive tipo /file/d/ID/view a enlace directo de visualización."""
-        import re
-        match = re.search(r"/file/d/([\w-]+)", url)
-        if match:
-            file_id = match.group(1)
-            return f"https://drive.google.com/uc?export=view&id={file_id}"
+        """Convierte un enlace de Google Drive tipo /file/d/ID/view o sharing a enlace directo de visualización."""
+        if not isinstance(url, str):
+            return url
+        # Buscar ID en diferentes formatos
+        patterns = [
+            r"/file/d/([\w-]+)",
+            r"id=([\w-]+)",
+            r"https://drive.google.com/open\?id=([\w-]+)",
+            r"https://drive.google.com/uc\?id=([\w-]+)"
+        ]
+        for pat in patterns:
+            match = re.search(pat, url)
+            if match:
+                file_id = match.group(1)
+                return f"https://drive.google.com/uc?export=view&id={file_id}"
         return url
 
-    foto_url = op_row["foto_url"].values[0] if "foto_url" in op_row.columns and not op_row.empty else ""
-    if foto_url:
-        st.markdown(f'''
-            <a href="{foto_url}" target="_blank" style="
-                display: inline-block;
-                padding: 0.5em 1.2em;
-                background: #00BDAD;
-                color: white;
-                border: none;
-                border-radius: 1.5em;
-                text-decoration: none;
-                font-weight: bold;
-                font-size: 1.1em;
-                margin-bottom: 1em;
-                transition: background 0.2s;
-            " onmouseover="this.style.background='#009e90'" onmouseout="this.style.background='#00BDAD'">
-                IMAGEN EQUIPO
-            </a>
-        ''', unsafe_allow_html=True)
-    else:
-        st.info("No hay foto disponible para este equipo. Agrega el enlace en la hoja Equipos.")
+    equipo_row = op_row.squeeze()
+    with st.expander("Información adicional del equipo", expanded=True):
+        col1, col2 = st.columns(2)
+        # Foto
+        foto_url = get_drive_direct_url(equipo_row.get("foto_url", ""))
+        if foto_url:
+            with col1:
+                st.markdown("**Foto del equipo:**")
+                st.image(foto_url, use_container_width=True)
+                st.markdown(f'''
+                    <a href="{foto_url}" target="_blank" style="
+                        display: inline-block;
+                        padding: 0.5em 1.2em;
+                        background: #00BDAD;
+                        color: white;
+                        border: none;
+                        border-radius: 1.5em;
+                        text-decoration: none;
+                        font-weight: bold;
+                        font-size: 1.1em;
+                        margin-bottom: 1em;
+                        transition: background 0.2s;
+                    " onmouseover="this.style.background='#009e90'" onmouseout="this.style.background='#00BDAD'">
+                        IMAGEN EQUIPO
+                    </a>
+                ''', unsafe_allow_html=True)
+        else:
+            with col1:
+                st.info("No hay foto disponible para este equipo.")
+        # Manual
+        manual_url = get_drive_direct_url(equipo_row.get("manual_url", ""))
+        if manual_url:
+            with col2:
+                st.markdown("**Manual del equipo (PDF):**")
+                st.markdown(f'''
+                    <a href="{manual_url}" target="_blank" style="
+                        display: inline-block;
+                        padding: 0.5em 1.2em;
+                        background: #0072C6;
+                        color: white;
+                        border: none;
+                        border-radius: 1.5em;
+                        text-decoration: none;
+                        font-weight: bold;
+                        font-size: 1.1em;
+                        margin-bottom: 1em;
+                        transition: background 0.2s;
+                    " onmouseover="this.style.background='#005fa3'" onmouseout="this.style.background='#0072C6'">
+                        MANUAL PDF
+                    </a>
+                ''', unsafe_allow_html=True)
+        else:
+            with col2:
+                st.info("No hay manual PDF disponible para este equipo.")
+        # Ficha técnica
+        ficha_url = get_drive_direct_url(equipo_row.get("ficha_tecnica_url", ""))
+        if ficha_url:
+            st.markdown("**Ficha técnica:**")
+            st.markdown(f"[Ver ficha técnica]({ficha_url})", unsafe_allow_html=True)
+        else:
+            st.info("No hay ficha técnica disponible para este equipo.")
+        # Fecha de instalación
+        fecha_inst = equipo_row.get("fecha_instalacion", "No disponible")
+        st.markdown(f"**Fecha de instalación:** {fecha_inst}")
 
-    # --- MANUAL PDF ---
-    st.markdown("####  Manual del equipo (PDF)")
-    manual_url = op_row["manual_url"].values[0] if "manual_url" in op_row.columns and not op_row.empty else ""
-    if manual_url:
-        st.markdown(f'''
-            <a href="{manual_url}" target="_blank" style="
-                display: inline-block;
-                padding: 0.5em 1.2em;
-                background: #0072C6;
-                color: white;
-                border: none;
-                border-radius: 1.5em;
-                text-decoration: none;
-                font-weight: bold;
-                font-size: 1.1em;
-                margin-bottom: 1em;
-                transition: background 0.2s;
-            " onmouseover="this.style.background='#005fa3'" onmouseout="this.style.background='#0072C6'">
-                MANUAL PDF
-            </a>
-        ''', unsafe_allow_html=True)
-    else:
-        st.info("No hay manual PDF disponible para este equipo. Agrega el enlace en la hoja Equipos.")
+        # --- ESTADO DE CONSUMIBLES ---
+        if 'codigo_sel' in locals() and codigo_sel:
+            st.markdown("### 🔧 Estado de consumibles del proceso seleccionado")
+            # Leer registros de uso desde la hoja principal para el equipo seleccionado
+            data_registro = pd.DataFrame(sheet_registro_data)
+            data_registro.columns = [col.lower().strip() for col in data_registro.columns]
+            data_equipo = data_registro[(data_registro["empresa"].str.strip().str.lower() == empresa.strip().lower()) & (data_registro["codigo"] == codigo_sel)] if not data_registro.empty else pd.DataFrame()
+            estado_partes = {parte: 0 for parte in consumibles_equipo}
+
+            for _, fila in data_equipo.iterrows():
+                horas = fila.get("hora de uso", 0)
+                try:
+                    horas = float(horas)
+                except:
+                    horas = 0
+                partes_cambiadas = str(fila.get("parte cambiada", "")).split(";")
+                for parte in consumibles_equipo:
+                    if parte in partes_cambiadas:
+                        estado_partes[parte] = 0
+                    else:
+                        estado_partes[parte] += horas
+
+            for parte, usadas in estado_partes.items():
+                # Obtener vida útil desde la hoja de zona si existe, si no usar el valor por defecto
+                vida_util_val = VIDA_UTIL_DEFECTO
+                if "vida_util" in op_row.columns and not op_row.empty:
+                    vida_util_str = str(op_row["vida_util"].values[0])
+                    # Si hay varios consumibles, separar por coma
+                    vidas_utiles = [int(v.strip()) if v.strip().isdigit() else VIDA_UTIL_DEFECTO for v in vida_util_str.split(",")]
+                    # Asignar por índice si hay correspondencia
+                    idx = list(op_row["consumibles"].values[0].split(",")).index(parte) if parte in op_row["consumibles"].values[0].split(",") else 0
+                    if idx < len(vidas_utiles):
+                        vida_util_val = vidas_utiles[idx]
+                restantes = max(vida_util_val - usadas, 0)
+                porcentaje = min(usadas / vida_util_val, 1.0) if vida_util_val > 0 else 0
+
+                if restantes <= 1:
+                    color, estado_txt = "🔴", "Crítico"
+                elif restantes <= 10:
+                    color, estado_txt = "🟡", "Advertencia"
+                else:
+                    color, estado_txt = "🟢", "Bueno"
+
+                st.markdown(f"{color} **{parte}** - Estado: `{estado_txt}`")
+                st.markdown(f"**Uso:** {usadas:.1f} / {vida_util_val} h")
+                st.progress(porcentaje)
+        else:
+            st.info("Selecciona un equipo para ver el estado de consumibles.")
 
 # --- FORMULARIO DE REGISTRO INFORMACION DEL EQUIPO--------------
 with st.form("registro_form"):
@@ -509,7 +529,7 @@ with st.form("registro_form"):
             empresa,
             str(fecha),
             op_equipo,
-            codigo,
+            codigo_sel,
             descripcion,
             0.0,  
             ";".join(partes),
@@ -518,40 +538,4 @@ with st.form("registro_form"):
         ]
         sheet_registro.append_row(fila)
         st.success("✅ Registro guardado correctamente.")
-
-# --- ESTADO DE CONSUMIBLES ---
-st.markdown("### 🔧 Estado de consumibles del proceso seleccionado")
-data_equipo = data[(data["empresa"] == empresa) & (data["codigo"] == codigo)]
-estado_partes = {parte: 0 for parte in consumibles_equipo}
-
-for _, fila in data_equipo.iterrows():
-    horas = fila.get("hora de uso", 0)
-    try:
-        horas = float(horas)
-    except:
-        horas = 0
-    partes_cambiadas = str(fila.get("parte cambiada", "")).split(";")
-    for parte in consumibles_equipo:
-        if parte in partes_cambiadas:
-            estado_partes[parte] = 0
-        else:
-            estado_partes[parte] += horas
-
-for parte, usadas in estado_partes.items():
-    limite = VIDA_UTIL.get(parte, VIDA_UTIL_DEFECTO)
-    restantes = max(limite - usadas, 0)
-    porcentaje = min(usadas / limite, 1.0)
-
-    if restantes <= 0.5:
-        color, estado_txt = "⚠️", "Falla esperada"
-    elif restantes <= 192:
-        color, estado_txt = "🔴", "Crítico"
-    elif restantes <= 360:
-        color, estado_txt = "🟡", "Advertencia"
-    else:
-        color, estado_txt = "🟢", "Bueno"
-
-    st.markdown(f"{color} **{parte}** - Estado: `{estado_txt}`")
-    st.markdown(f"**Uso:** {usadas:.1f} / {limite} h")
-    st.progress(porcentaje)
    
