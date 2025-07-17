@@ -819,7 +819,6 @@ if equipo_seleccionado and isinstance(equipo_seleccionado, str) and not op_row.e
 # --- FORMULARIO DE REGISTRO INFORMACION DEL EQUIPO--------------
 with st.form("registro_form"):
     fecha = date.today()
-    st.markdown(f"**Orden de producción (OP):** `{op_equipo}`")
     partes = []
     if consumibles_equipo:
         partes = st.multiselect("Partes cambiadas hoy", consumibles_equipo)
