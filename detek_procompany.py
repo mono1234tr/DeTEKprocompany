@@ -7,6 +7,25 @@ from google.oauth2.service_account import Credentials
 import gspread
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
+USUARIO_CORRECTO = "admin"
+CONTRASENA_CORRECTA = "1234"
+
+if 'autenticado' not in st.session_state:
+    st.session_state['autenticado'] = False
+
+if not st.session_state['autenticado']:
+    st.title("Iniciar sesión")
+    usuario = st.text_input("Usuario")
+    contrasena = st.text_input("Contraseña", type="password")
+    if st.button("Entrar"):
+        if usuario == USUARIO_CORRECTO and contrasena == CONTRASENA_CORRECTA:
+            st.session_state['autenticado'] = True
+            st.success("Acceso concedido. Cargando app...")
+            st.rerun()
+        else:
+            st.error("Usuario o contraseña incorrectos.")
+    st.stop()
+
 
 # --- VARIABLES DE MODO OFFLINE ---
 if 'modo_offline' not in st.session_state:
@@ -16,12 +35,37 @@ if 'ultimo_error_sheet' not in st.session_state:
 
 
 # --- CACHÉ EN MEMORIA PARA GOOGLE SHEETS (TTL extendido) ---
-@st.cache_data(show_spinner=False, ttl=3600, max_entries=50)
+@st.cache_data(show_spinner=False, ttl=30, max_entries=50)
 def cached_get_all_records(sheet_key, worksheet_name):
     try:
         client = get_gspread_client()
         ws = client.open_by_key(sheet_key).worksheet(worksheet_name)
-        return ws.get_all_records()
+        # Solución robusta: buscar la fila de encabezados correcta en 'Equipos'
+        if worksheet_name.lower() == "equipos":
+            # Buscar la primera fila que contenga 'Empresa' (ignorando mayúsculas/minúsculas)
+            for i in range(1, 11):  # Busca en las primeras 10 filas
+                fila = ws.row_values(i)
+                if any(str(cell).strip().lower() == "empresa" for cell in fila):
+                    header_row = i
+                    headers = [h if h else f"col_{idx+1}" for idx, h in enumerate(fila)]
+                    break
+            else:
+                # Si no encuentra, usa la primera fila
+                header_row = 1
+                headers = ws.row_values(1)
+                headers = [h if h else f"col_{idx+1}" for idx, h in enumerate(headers)]
+            # Elimina duplicados en headers solo si hay vacíos
+            seen = set()
+            new_headers = []
+            for idx, h in enumerate(headers):
+                h_clean = h if h else f"col_{idx+1}"
+                while h_clean in seen or h_clean == '':
+                    h_clean += f"_{idx+1}"
+                seen.add(h_clean)
+                new_headers.append(h_clean)
+            return ws.get_all_records(expected_headers=new_headers, head=header_row)
+        else:
+            return ws.get_all_records()
     except Exception as e:
         st.session_state['modo_offline'] = True
         st.session_state['ultimo_error_sheet'] = str(e)
@@ -119,7 +163,7 @@ if st.session_state.get('modo_offline', False):
     st.warning(f"No se pudo conectar con Google Sheets. Estás en modo offline temporal.\n\nError: {st.session_state.get('ultimo_error_sheet','')}")
     if st.button("Reintentar conexión con Google Sheets"):
         st.session_state['modo_offline'] = False
-        st.experimental_rerun()
+        st.rerun()
 
 # --- VIDA ÚTIL POR DEFECTO ---
 VIDA_UTIL_DEFECTO = 700
@@ -362,7 +406,8 @@ orden_zonas = [
     ("zona sacrificio", "Zona Sacrificio"),
     ("zona evisceracion", "Zona Evisceracion"),
     ("zona enfriamiento", "Zona Enfriamiento"),
-    ("zona empaque", "Zona Empaque")
+    ("zona empaque", "Zona Empaque"),
+    ("transportador_aereo", "Transportador Aéreo")
 ]
 
 # Normalizar zonas del DataFrame
@@ -531,7 +576,7 @@ with st.sidebar.expander("➕ Agregar nueva tarea"):
                 ""
             ])
             st.success("Tarea agregada correctamente.")
-            st.experimental_rerun()
+            st.rerun()
 
 # --- CHAT EN LÍNEA ENTRE APPS ---
 # --- INDICADOR DE MENSAJES NUEVOS ---
@@ -583,7 +628,7 @@ with st.sidebar.expander(chat_title, expanded=False):
             st.session_state['ultimo_mensaje_leido'] = str(datetime.now())
             st.session_state['empresa_chat_leido'] = empresa
             time.sleep(1)
-            st.experimental_rerun()
+            st.rerun()
 
 # --- INFORMACIÓN MULTIMEDIA DEL EQUIPO EN EXPANDER ---
 
