@@ -528,7 +528,6 @@ else:
 
 # --- AVANCE AUTOMÁTICO DE HORAS DE USO ---
 if modo_auto:
-    st.markdown("### ⏱️ Avance automático de horas de uso (7:00am - 2:00pm)")
     if now < start_time:
         st.info("La planta aún no ha arrancado hoy. El conteo inicia a las 7:00am.")
         horas_avance = 0
