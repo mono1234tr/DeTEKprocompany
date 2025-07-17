@@ -7,6 +7,7 @@ from google.oauth2.service_account import Credentials
 import gspread
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
+# --- AUTENTICACIÓN ---
 USUARIO_CORRECTO = "admin"
 CONTRASENA_CORRECTA = "1234"
 
@@ -14,10 +15,10 @@ if 'autenticado' not in st.session_state:
     st.session_state['autenticado'] = False
 
 if not st.session_state['autenticado']:
-    st.title("Iniciar sesión")
+    st.title("Iniciar sesión en DeTEK PRO COMPANY")
     usuario = st.text_input("Usuario")
     contrasena = st.text_input("Contraseña", type="password")
-    if st.button("Entrar"):
+    if st.button("Ingresar"):
         if usuario == USUARIO_CORRECTO and contrasena == CONTRASENA_CORRECTA:
             st.session_state['autenticado'] = True
             st.success("Acceso concedido. Cargando app...")
