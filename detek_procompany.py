@@ -500,13 +500,22 @@ else:
 
 # --- EXPANDER CON INFO DEL EQUIPO SELECCIONADO ---
 
+import pytz
+from datetime import timedelta
+
+tz = pytz.timezone("America/Bogota")  # Cambia a tu zona horaria si es necesario
+now = datetime.now(tz)
+today = now.date()
+start_time = now.replace(hour=7, minute=0, second=0, microsecond=0)
+end_time = now.replace(hour=14, minute=0, second=0, microsecond=0)
+
+modo_auto = True  # Siempre automático
+
 if equipo_sel_nombre:
-    # Extraer el código del string seleccionado (formato: 'codigo - descripcion')
     codigo_sel = equipo_sel_nombre.split(' - ')[0].strip()
     op_row = equipos_zona_df[equipos_zona_df["codigo"] == codigo_sel]
     op_equipo = op_row["op"].values[0] if "op" in op_row.columns and not op_row.empty else "No disponible"
     descripcion = op_row["descripcion"].values[0] if not op_row.empty else "No disponible"
-    # Solo incluir consumibles no vacíos
     if not op_row.empty:
         consumibles_equipo = [c.strip() for c in op_row["consumibles"].values[0].split(",") if c.strip()]
     else:
@@ -516,6 +525,51 @@ else:
     op_equipo = "No disponible"
     descripcion = "No disponible"
     consumibles_equipo = []
+
+# --- AVANCE AUTOMÁTICO DE HORAS DE USO ---
+if modo_auto:
+    st.markdown("### ⏱️ Avance automático de horas de uso (7:00am - 2:00pm)")
+    if now < start_time:
+        st.info("La planta aún no ha arrancado hoy. El conteo inicia a las 7:00am.")
+        horas_avance = 0
+    elif now > end_time:
+        horas_avance = 7.0
+    else:
+        delta = now - start_time
+        horas_avance = min(7.0, delta.total_seconds() / 3600)
+    st.markdown(f"**Horas transcurridas hoy:** `{horas_avance:.2f}` / 7.00 h")
+    st.progress(horas_avance / 7.0)
+
+    # Registro automático a las 2pm para TODOS los equipos de la empresa si no existe ya
+    if now > end_time:
+        data_registro = pd.DataFrame(sheet_registro_data)
+        data_registro.columns = [col.lower().strip() for col in data_registro.columns]
+        equipos_empresa = equipos_df[equipos_df["empresa"].str.strip().str.lower() == empresa.strip().lower()]
+        registros_realizados = 0
+        for _, eq_row in equipos_empresa.iterrows():
+            codigo = eq_row["codigo"]
+            descripcion_eq = eq_row["descripcion"]
+            existe_registro = False
+            if not data_registro.empty:
+                existe_registro = (
+                    (data_registro["empresa"].str.strip().str.lower() == empresa.strip().lower()) &
+                    (data_registro["codigo"] == codigo) &
+                    (data_registro["fecha"] == str(today))
+                ).any()
+            if not existe_registro:
+                fila = [
+                    empresa,
+                    str(today),
+                    codigo,
+                    descripcion_eq,
+                    7.0,
+                    "",
+                    "Registro automático de horas de uso"
+                ]
+                sheet_registro.append_row(fila)
+                registros_realizados += 1
+        if registros_realizados > 0:
+            st.success(f"Registro automático de 7 horas guardado para {registros_realizados} equipo(s) hoy.")
 
 # --- INFORMACIÓN DE LA EMPRESA (sidebar) ---
 st.sidebar.markdown("### 🏢 Información de la empresa seleccionada")
@@ -726,11 +780,8 @@ if equipo_seleccionado and isinstance(equipo_seleccionado, str) and not op_row.e
             estado_partes = {parte: 0 for parte in consumibles_equipo}
 
             for _, fila in data_equipo.iterrows():
-                horas = fila.get("hora de uso", 0)
-                try:
-                    horas = float(horas)
-                except:
-                    horas = 0
+                # Forzar 7 horas por registro diario
+                horas = 7.0
                 partes_cambiadas = str(fila.get("parte cambiada", "")).split(";")
                 for parte in consumibles_equipo:
                     if parte in partes_cambiadas:
@@ -767,24 +818,23 @@ if equipo_seleccionado and isinstance(equipo_seleccionado, str) and not op_row.e
 
 # --- FORMULARIO DE REGISTRO INFORMACION DEL EQUIPO--------------
 with st.form("registro_form"):
-    fecha = st.date_input("Fecha", value=date.today())
+    fecha = date.today()
     st.markdown(f"**Orden de producción (OP):** `{op_equipo}`")
     partes = []
     if consumibles_equipo:
         partes = st.multiselect("Partes cambiadas hoy", consumibles_equipo)
-    observaciones = st.text_area("Observaciones técnicas")
+    observaciones = st.text_area("Observaciones")
+    st.markdown("**Horas de uso del día:** `7` (valor fijo, automático)")
 
-    if st.form_submit_button("Guardar registro"):
+    if st.form_submit_button("Guardar registro de cambio de partes"):
         fila = [
             empresa,
             str(fecha),
-            op_equipo,
             codigo_sel,
             descripcion,
-            0.0,  
+            0.0,  # No suma horas, solo cambio de partes
             ";".join(partes),
-            "",  # Observaciones cliente
             observaciones
         ]
         sheet_registro.append_row(fila)
-        st.success("✅ Registro guardado correctamente.")
+        st.success("✅ Registro de cambio de partes guardado correctamente.")
