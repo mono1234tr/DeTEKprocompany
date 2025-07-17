@@ -353,19 +353,52 @@ if not info_empresa_row.empty:
 
 # 3. Selección de zona (ahora desde la columna 'zona' de la hoja 'equipos')
 
+
+# --- ORDEN PERSONALIZADO DE ZONAS ---
+
+# Orden y nombres amigables fijos
+orden_zonas = [
+    ("zona recibo", "Zona Recibo"),
+    ("zona sacrificio", "Zona Sacrificio"),
+    ("zona evisceracion", "Zona Evisceracion"),
+    ("zona enfriamiento", "Zona Enfriamiento"),
+    ("zona empaque", "Zona Empaque")
+]
+
+# Normalizar zonas del DataFrame
 zonas_unicas = equipos_df["zona"].dropna().unique()
+zonas_unicas_norm = [z.strip().lower() for z in zonas_unicas]
+
+# Construir lista ordenada solo con las zonas que existen, usando nombres amigables fijos
+
+# Usar un set para evitar duplicados de zonas amigables
 zonas_visibles = []
 zonas_alerta_map = {}
-def zona_amigable(z):
-    return z.replace('_', ' ').title() if isinstance(z, str) else z
-for zona in zonas_unicas:
-    equipos_zona = equipos_df[(equipos_df["empresa"].str.strip().str.lower() == empresa.strip().lower()) & (equipos_df["zona"] == zona)]
-    alerta = ''
-    if equipos_zona.empty:
-        alerta = ' ⚠️'
-    visible = f"{zona_amigable(zona)}{alerta}"
-    zonas_visibles.append(visible)
-    zonas_alerta_map[visible] = zona
+zonas_agregadas = set()
+for zona_norm, zona_amigable in orden_zonas:
+    if zona_norm in zonas_unicas_norm and zona_amigable not in zonas_agregadas:
+        zona_real = next((z for z in zonas_unicas if z.strip().lower() == zona_norm), zona_norm)
+        equipos_zona = equipos_df[(equipos_df["empresa"].str.strip().str.lower() == empresa.strip().lower()) & (equipos_df["zona"].str.strip().str.lower() == zona_norm)]
+        alerta = ''
+        if equipos_zona.empty:
+            alerta = ' ⚠️'
+        visible = f"{zona_amigable}{alerta}"
+        zonas_visibles.append(visible)
+        zonas_alerta_map[visible] = zona_real
+        zonas_agregadas.add(zona_amigable)
+# Agregar cualquier zona extra que no esté en el orden predefinido, normalizando a formato amigable
+for z in zonas_unicas:
+    znorm = z.strip().lower()
+    zona_amigable = z.replace('_', ' ').title()
+    if znorm not in [o[0] for o in orden_zonas] and zona_amigable not in zonas_agregadas:
+        equipos_zona = equipos_df[(equipos_df["empresa"].str.strip().str.lower() == empresa.strip().lower()) & (equipos_df["zona"].str.strip().str.lower() == znorm)]
+        alerta = ''
+        if equipos_zona.empty:
+            alerta = ' ⚠️'
+        visible = f"{zona_amigable}{alerta}"
+        zonas_visibles.append(visible)
+        zonas_alerta_map[visible] = z
+        zonas_agregadas.add(zona_amigable)
 
 zona_visible = st.selectbox("Selecciona la zona:", zonas_visibles, key="zona_select")
 nombre_zona = zonas_alerta_map[zona_visible]
@@ -427,7 +460,11 @@ if equipo_sel_nombre:
     op_row = equipos_zona_df[equipos_zona_df["codigo"] == codigo_sel]
     op_equipo = op_row["op"].values[0] if "op" in op_row.columns and not op_row.empty else "No disponible"
     descripcion = op_row["descripcion"].values[0] if not op_row.empty else "No disponible"
-    consumibles_equipo = [c.strip() for c in op_row["consumibles"].values[0].split(",")] if not op_row.empty else []
+    # Solo incluir consumibles no vacíos
+    if not op_row.empty:
+        consumibles_equipo = [c.strip() for c in op_row["consumibles"].values[0].split(",") if c.strip()]
+    else:
+        consumibles_equipo = []
 else:
     op_row = pd.DataFrame()
     op_equipo = "No disponible"
@@ -573,12 +610,11 @@ if equipo_seleccionado and isinstance(equipo_seleccionado, str) and not op_row.e
     equipo_row = op_row.squeeze()
     with st.expander("Información adicional del equipo", expanded=True):
         col1, col2 = st.columns(2)
-        # Foto
+        # Foto (solo enlace, sin previsualización)
         foto_url = get_drive_direct_url(equipo_row.get("foto_url", ""))
-        if foto_url:
-            with col1:
-                st.markdown("**Foto del equipo:**")
-                st.image(foto_url, use_container_width=True)
+        with col1:
+            st.markdown("**Foto del equipo:**")
+            if foto_url:
                 st.markdown(f'''
                     <a href="{foto_url}" target="_blank" style="
                         display: inline-block;
@@ -596,8 +632,7 @@ if equipo_seleccionado and isinstance(equipo_seleccionado, str) and not op_row.e
                         IMAGEN EQUIPO
                     </a>
                 ''', unsafe_allow_html=True)
-        else:
-            with col1:
+            else:
                 st.info("No hay foto disponible para este equipo.")
         # Manual
         manual_url = get_drive_direct_url(equipo_row.get("manual_url", ""))
@@ -688,7 +723,9 @@ if equipo_seleccionado and isinstance(equipo_seleccionado, str) and not op_row.e
 with st.form("registro_form"):
     fecha = st.date_input("Fecha", value=date.today())
     st.markdown(f"**Orden de producción (OP):** `{op_equipo}`")
-    partes = st.multiselect("Partes cambiadas hoy", consumibles_equipo)
+    partes = []
+    if consumibles_equipo:
+        partes = st.multiselect("Partes cambiadas hoy", consumibles_equipo)
     observaciones = st.text_area("Observaciones técnicas")
 
     if st.form_submit_button("Guardar registro"):
