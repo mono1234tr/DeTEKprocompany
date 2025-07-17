@@ -8,12 +8,24 @@ import gspread
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 
-# --- CACHÉ EN MEMORIA PARA GOOGLE SHEETS ---
-@st.cache_data(show_spinner=False, ttl=5, max_entries=30)
+# --- VARIABLES DE MODO OFFLINE ---
+if 'modo_offline' not in st.session_state:
+    st.session_state['modo_offline'] = False
+if 'ultimo_error_sheet' not in st.session_state:
+    st.session_state['ultimo_error_sheet'] = ''
+
+
+# --- CACHÉ EN MEMORIA PARA GOOGLE SHEETS (TTL extendido) ---
+@st.cache_data(show_spinner=False, ttl=3600, max_entries=50)
 def cached_get_all_records(sheet_key, worksheet_name):
-    client = get_gspread_client()
-    ws = client.open_by_key(sheet_key).worksheet(worksheet_name)
-    return ws.get_all_records()
+    try:
+        client = get_gspread_client()
+        ws = client.open_by_key(sheet_key).worksheet(worksheet_name)
+        return ws.get_all_records()
+    except Exception as e:
+        st.session_state['modo_offline'] = True
+        st.session_state['ultimo_error_sheet'] = str(e)
+        raise
 
 # --- CACHÉ PARA CLIENTE GSPREAD ---
 @st.cache_resource(show_spinner=False)
@@ -67,25 +79,47 @@ def get_or_create_sheet_tareas(client, SHEET_ID):
 client = get_gspread_client()
 SHEET_ID = "1288rxOwtZDI3A7kuLnR4AXaI-GKt6YizeZS_4ZvdTnQ"
 
-# --- HOJAS PRINCIPALES USANDO CACHÉ (lectura) Y OBJETOS PARA ESCRITURA ---
-sheet_registro_data = cached_get_all_records(SHEET_ID, "Hoja 1")
-sheet_empresas_data = cached_get_all_records(SHEET_ID, "Empresas")
-try:
-    sheet_chat_data = cached_get_all_records(SHEET_ID, "Chat")
-except:
-    ws = client.open_by_key(SHEET_ID).add_worksheet(title="Chat", rows="1000", cols="4")
-    ws.append_row(["fecha", "usuario", "mensaje", "empresa"])
-    sheet_chat_data = []
-try:
-    sheet_tareas_data = cached_get_all_records(SHEET_ID, "Tareas")
-except:
-    ws = client.open_by_key(SHEET_ID).add_worksheet(title="Tareas", rows="1000", cols="6")
-    ws.append_row(["empresa", "tarea", "asignada_por", "fecha_asignacion", "completada", "fecha_completada"])
-    sheet_tareas_data = []
+
+# --- INTENTAR CARGAR DATOS DE SHEETS, SI FALLA USAR CACHE Y MODO OFFLINE ---
+def cargar_datos_sheet():
+    try:
+        sheet_registro_data = cached_get_all_records(SHEET_ID, "Hoja 1")
+        sheet_empresas_data = cached_get_all_records(SHEET_ID, "Empresas")
+        try:
+            sheet_chat_data = cached_get_all_records(SHEET_ID, "Chat")
+        except:
+            ws = client.open_by_key(SHEET_ID).add_worksheet(title="Chat", rows="1000", cols="4")
+            ws.append_row(["fecha", "usuario", "mensaje", "empresa"])
+            sheet_chat_data = []
+        try:
+            sheet_tareas_data = cached_get_all_records(SHEET_ID, "Tareas")
+        except:
+            ws = client.open_by_key(SHEET_ID).add_worksheet(title="Tareas", rows="1000", cols="6")
+            ws.append_row(["empresa", "tarea", "asignada_por", "fecha_asignacion", "completada", "fecha_completada"])
+            sheet_tareas_data = []
+        st.session_state['modo_offline'] = False
+        st.session_state['ultimo_error_sheet'] = ''
+        return sheet_registro_data, sheet_empresas_data, sheet_chat_data, sheet_tareas_data
+    except Exception as e:
+        st.session_state['modo_offline'] = True
+        st.session_state['ultimo_error_sheet'] = str(e)
+        # Intentar usar datos cacheados si existen
+        sheet_registro_data = st.cache_data.get_cached_value(cached_get_all_records, (SHEET_ID, "Hoja 1")) or []
+        sheet_empresas_data = st.cache_data.get_cached_value(cached_get_all_records, (SHEET_ID, "Empresas")) or []
+        sheet_chat_data = st.cache_data.get_cached_value(cached_get_all_records, (SHEET_ID, "Chat")) or []
+        sheet_tareas_data = st.cache_data.get_cached_value(cached_get_all_records, (SHEET_ID, "Tareas")) or []
+        return sheet_registro_data, sheet_empresas_data, sheet_chat_data, sheet_tareas_data
+
+sheet_registro_data, sheet_empresas_data, sheet_chat_data, sheet_tareas_data = cargar_datos_sheet()
 sheet_tareas = get_or_create_sheet_tareas(client, SHEET_ID)
-# Objetos SOLO para escritura
 sheet_chat = client.open_by_key(SHEET_ID).worksheet("Chat")
 sheet_registro = client.open_by_key(SHEET_ID).worksheet("Hoja 1")
+# --- AVISO DE MODO OFFLINE Y BOTÓN DE REINTENTO ---
+if st.session_state.get('modo_offline', False):
+    st.warning(f"No se pudo conectar con Google Sheets. Estás en modo offline temporal.\n\nError: {st.session_state.get('ultimo_error_sheet','')}")
+    if st.button("Reintentar conexión con Google Sheets"):
+        st.session_state['modo_offline'] = False
+        st.experimental_rerun()
 
 # --- VIDA ÚTIL POR DEFECTO ---
 VIDA_UTIL_DEFECTO = 700
@@ -108,7 +142,7 @@ for _, row in empresas_df.iterrows():
         for _, eq_row in equipos_empresa.iterrows():
             consumibles = [c.strip() for c in str(eq_row.get('consumibles','')).split(",") if c.strip()]
             vida_util_str = str(eq_row.get('vida_util',''))
-            vidas_utiles = [int(v.strip()) if v.strip().isdigit() else 700 for v in vida_util_str.split(",")]
+            vidas_utiles = [int(v.strip()) if v.strip().isdigit() else 700 for v in vida_util_str.split(";")]
             data_registro = pd.DataFrame(sheet_registro_data)
             data_registro.columns = [col.lower().strip() for col in data_registro.columns]
             data_equipo = data_registro[(data_registro["empresa"].str.strip().str.lower() == nombre.strip().lower()) & (data_registro["codigo"] == eq_row['codigo'])] if not data_registro.empty else pd.DataFrame()
@@ -628,8 +662,8 @@ if equipo_seleccionado and isinstance(equipo_seleccionado, str) and not op_row.e
                 vida_util_val = VIDA_UTIL_DEFECTO
                 if "vida_util" in op_row.columns and not op_row.empty:
                     vida_util_str = str(op_row["vida_util"].values[0])
-                    # Si hay varios consumibles, separar por coma
-                    vidas_utiles = [int(v.strip()) if v.strip().isdigit() else VIDA_UTIL_DEFECTO for v in vida_util_str.split(",")]
+                    # Si hay varios consumibles, separar por punto y coma
+                    vidas_utiles = [int(v.strip()) if v.strip().isdigit() else VIDA_UTIL_DEFECTO for v in vida_util_str.split(";")]
                     # Asignar por índice si hay correspondencia
                     idx = list(op_row["consumibles"].values[0].split(",")).index(parte) if parte in op_row["consumibles"].values[0].split(",") else 0
                     if idx < len(vidas_utiles):
