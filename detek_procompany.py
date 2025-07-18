@@ -865,3 +865,31 @@ with st.form("registro_form"):
     # Se elimina la visualización de cantidad y horas de uso
     enviado = st.form_submit_button("Registrar información")
 
+    if enviado:
+        # Lógica para guardar registro manual
+        parte_cambiada = ";".join(partes) if partes else ""
+        horas_uso = 0.0 if partes else 7.0
+        fila = [
+            empresa,
+            str(fecha),
+            codigo_sel if 'codigo_sel' in locals() else "",
+            descripcion if 'descripcion' in locals() else "",
+            horas_uso,
+            parte_cambiada,
+            observaciones if observaciones else "Sin Observaciones"
+        ]
+        sheet_registro.append_row(fila)
+        # Si se cambió alguna parte, reiniciar la columna 'hora de uso' en la hoja de equipos
+        if partes and 'codigo_sel' in locals():
+            idx_equipo = equipos_df[(equipos_df["empresa"].str.strip().str.lower() == empresa.strip().lower()) & (equipos_df["codigo"] == codigo_sel)].index
+            if len(idx_equipo) > 0:
+                idx = idx_equipo[0]
+                # Reiniciar 'hora de uso' a 0 (si existe la columna)
+                if "hora de uso" in equipos_df.columns:
+                    equipos_df.at[idx, "hora de uso"] = 0
+                    # Actualizar en Google Sheets
+                    sheet_equipos = client.open_by_key(SHEET_ID).worksheet("Equipos")
+                    col_idx = list(equipos_df.columns).index("hora de uso") + 1
+                    sheet_equipos.update_cell(idx + 2, col_idx, 0)  # +2 por encabezado y 0-index
+        st.success("Registro guardado correctamente en Hoja 1 y vida útil reiniciada si corresponde.")
+
