@@ -898,5 +898,8 @@ with st.form("registro_form"):
                     sheet_equipos = client.open_by_key(SHEET_ID).worksheet("Equipos")
                     col_idx = list(equipos_df.columns).index("hora de uso") + 1
                     sheet_equipos.update_cell(idx + 2, col_idx, 0)  # +2 por encabezado y 0-index
-        st.success("Registro guardado correctamente en Hoja 1 y vida útil reiniciada si corresponde.")
+        # Limpiar los campos del formulario
+        st.session_state["registro_form-Partes cambiadas hoy"] = []
+        st.session_state["registro_form-Observaciones"] = ""
+        st.success("Registro guardado correctamente.")
 
