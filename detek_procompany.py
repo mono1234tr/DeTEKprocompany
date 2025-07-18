@@ -566,7 +566,6 @@ if modo_auto:
         for _, eq_row in equipos_empresa.iterrows():
             codigo = eq_row["codigo"]
             descripcion_eq = eq_row["descripcion"]
-            cantidad_eq = ""
             existe_registro = False
             if not data_registro.empty:
                 existe_registro = (
@@ -574,13 +573,30 @@ if modo_auto:
                     (data_registro["codigo"] == codigo) &
                     (data_registro["fecha"] == str(today))
                 ).any()
+            # Verificar si se cambió alguna parte hoy
+            parte_cambiada = ""
+            partes_cambiadas_hoy = []
+            if not data_registro.empty:
+                registros_hoy = data_registro[(data_registro["empresa"].str.strip().str.lower() == empresa.strip().lower()) &
+                                             (data_registro["codigo"] == codigo) &
+                                             (data_registro["fecha"] == str(today))]
+                if not registros_hoy.empty:
+                    partes_cambiadas_hoy = registros_hoy["parte cambiada"].dropna().tolist()
+            # Si hay partes cambiadas hoy, registrar y reiniciar vida útil
             if not existe_registro:
+                if partes_cambiadas_hoy:
+                    parte_cambiada = ";".join([p for p in partes_cambiadas_hoy if p])
+                    horas_uso = 0.0
+                else:
+                    parte_cambiada = ""
+                    horas_uso = 7.0
                 fila = [
                     empresa,
                     str(today),
                     codigo,
                     descripcion_eq,
-                    7.0,
+                    horas_uso,
+                    parte_cambiada,
                     "Sin Observaciones"
                 ]
                 sheet_registro.append_row(fila)
