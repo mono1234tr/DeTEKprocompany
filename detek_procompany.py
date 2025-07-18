@@ -566,7 +566,7 @@ if modo_auto:
         for _, eq_row in equipos_empresa.iterrows():
             codigo = eq_row["codigo"]
             descripcion_eq = eq_row["descripcion"]
-            cantidad_eq = eq_row["cantidad"] if "cantidad" in eq_row else ""
+            cantidad_eq = ""
             existe_registro = False
             if not data_registro.empty:
                 existe_registro = (
@@ -580,10 +580,8 @@ if modo_auto:
                     str(today),
                     codigo,
                     descripcion_eq,
-                    cantidad_eq,
                     7.0,
-                    "",
-                    "Registro automático de horas de uso"
+                    "Sin Observaciones"
                 ]
                 sheet_registro.append_row(fila)
                 registros_realizados += 1
