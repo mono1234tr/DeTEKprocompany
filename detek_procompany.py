@@ -802,7 +802,7 @@ if equipo_seleccionado and isinstance(equipo_seleccionado, str) and not op_row.e
             cantidad_consu_list = []
             if "cantidad_consu" in op_row.columns and not op_row.empty:
                 cantidad_consu_str = str(op_row["cantidad_consu"].values[0])
-                cantidad_consu_list = [c.strip() for c in cantidad_consu_str.split(",")]
+                cantidad_consu_list = [c.strip() for c in cantidad_consu_str.split(";")]
 
             for _, fila in data_equipo.iterrows():
                 # Forzar 7 horas por registro diario
@@ -814,8 +814,7 @@ if equipo_seleccionado and isinstance(equipo_seleccionado, str) and not op_row.e
                     else:
                         estado_partes[parte] += horas
 
-            # Construir la línea de consumibles y cantidades separadas por ;
-            consumibles_display = []
+            # Mostrar cada consumible y debajo su cantidad
             for idx, parte in enumerate(consumibles_equipo):
                 usadas = estado_partes.get(parte, 0)
                 vida_util_val = VIDA_UTIL_DEFECTO
@@ -835,19 +834,9 @@ if equipo_seleccionado and isinstance(equipo_seleccionado, str) and not op_row.e
                     color, estado_txt = "🟢", "Bueno"
 
                 cantidad_consu = cantidad_consu_list[idx] if idx < len(cantidad_consu_list) else "No disponible"
-                consumibles_display.append(f"{color} **{parte}** - Estado: `{estado_txt}` | Uso: {usadas:.1f} / {vida_util_val} h | Cantidad: `{cantidad_consu}`")
-            # Mostrar todos los consumibles en una sola línea, separados por ;
-            st.markdown(" ; ".join(consumibles_display))
-            # Mostrar barras de progreso individuales debajo
-            for idx, parte in enumerate(consumibles_equipo):
-                usadas = estado_partes.get(parte, 0)
-                vida_util_val = VIDA_UTIL_DEFECTO
-                if "vida_util" in op_row.columns and not op_row.empty:
-                    vida_util_str = str(op_row["vida_util"].values[0])
-                    vidas_utiles = [int(v.strip()) if v.strip().isdigit() else VIDA_UTIL_DEFECTO for v in vida_util_str.split(";")]
-                    if idx < len(vidas_utiles):
-                        vida_util_val = vidas_utiles[idx]
-                porcentaje = min(usadas / vida_util_val, 1.0) if vida_util_val > 0 else 0
+                st.markdown(f"{color} **{parte}** - Estado: `{estado_txt}`")
+                st.markdown(f"**Uso:** {usadas:.1f} / {vida_util_val} h")
+                st.markdown(f"Cantidad: `{cantidad_consu}`")
                 st.progress(porcentaje)
         else:
             st.info("Selecciona un equipo para ver el estado de consumibles.")
@@ -859,9 +848,6 @@ with st.form("registro_form"):
     if consumibles_equipo:
         partes = st.multiselect("Partes cambiadas hoy", consumibles_equipo)
     observaciones = st.text_area("Observaciones")
-    cantidad_eq = op_row["cantidad"].values[0] if "cantidad" in op_row.columns and not op_row.empty else ""
-    st.markdown(f"**Cantidad de equipos:** `{cantidad_eq}`")
-    st.markdown("**Horas de uso del día:** `7` (valor fijo, automático)")
-
-    # El formulario solo muestra la cantidad, no la modifica ni agrega filas a la hoja Equipos
+    # Se elimina la visualización de cantidad y horas de uso
     enviado = st.form_submit_button("Registrar información")
+
