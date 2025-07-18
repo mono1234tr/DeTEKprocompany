@@ -847,3 +847,4 @@ with st.form("registro_form"):
     st.markdown("**Horas de uso del día:** `7` (valor fijo, automático)")
 
     # El formulario solo muestra la cantidad, no la modifica ni agrega filas a la hoja Equipos
+    enviado = st.form_submit_button("Registrar información")
