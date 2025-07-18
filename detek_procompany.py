@@ -798,6 +798,12 @@ if equipo_seleccionado and isinstance(equipo_seleccionado, str) and not op_row.e
             data_equipo = data_registro[(data_registro["empresa"].str.strip().str.lower() == empresa.strip().lower()) & (data_registro["codigo"] == codigo_sel)] if not data_registro.empty else pd.DataFrame()
             estado_partes = {parte: 0 for parte in consumibles_equipo}
 
+            # Obtener cantidades de consumibles
+            cantidad_consu_list = []
+            if "cantidad_consu" in op_row.columns and not op_row.empty:
+                cantidad_consu_str = str(op_row["cantidad_consu"].values[0])
+                cantidad_consu_list = [c.strip() for c in cantidad_consu_str.split(",")]
+
             for _, fila in data_equipo.iterrows():
                 # Forzar 7 horas por registro diario
                 horas = 7.0
@@ -808,15 +814,14 @@ if equipo_seleccionado and isinstance(equipo_seleccionado, str) and not op_row.e
                     else:
                         estado_partes[parte] += horas
 
-            for parte, usadas in estado_partes.items():
-                # Obtener vida útil desde la hoja de zona si existe, si no usar el valor por defecto
+            # Construir la línea de consumibles y cantidades separadas por ;
+            consumibles_display = []
+            for idx, parte in enumerate(consumibles_equipo):
+                usadas = estado_partes.get(parte, 0)
                 vida_util_val = VIDA_UTIL_DEFECTO
                 if "vida_util" in op_row.columns and not op_row.empty:
                     vida_util_str = str(op_row["vida_util"].values[0])
-                    # Si hay varios consumibles, separar por punto y coma
                     vidas_utiles = [int(v.strip()) if v.strip().isdigit() else VIDA_UTIL_DEFECTO for v in vida_util_str.split(";")]
-                    # Asignar por índice si hay correspondencia
-                    idx = list(op_row["consumibles"].values[0].split(",")).index(parte) if parte in op_row["consumibles"].values[0].split(",") else 0
                     if idx < len(vidas_utiles):
                         vida_util_val = vidas_utiles[idx]
                 restantes = max(vida_util_val - usadas, 0)
@@ -829,8 +834,20 @@ if equipo_seleccionado and isinstance(equipo_seleccionado, str) and not op_row.e
                 else:
                     color, estado_txt = "🟢", "Bueno"
 
-                st.markdown(f"{color} **{parte}** - Estado: `{estado_txt}`")
-                st.markdown(f"**Uso:** {usadas:.1f} / {vida_util_val} h")
+                cantidad_consu = cantidad_consu_list[idx] if idx < len(cantidad_consu_list) else "No disponible"
+                consumibles_display.append(f"{color} **{parte}** - Estado: `{estado_txt}` | Uso: {usadas:.1f} / {vida_util_val} h | Cantidad: `{cantidad_consu}`")
+            # Mostrar todos los consumibles en una sola línea, separados por ;
+            st.markdown(" ; ".join(consumibles_display))
+            # Mostrar barras de progreso individuales debajo
+            for idx, parte in enumerate(consumibles_equipo):
+                usadas = estado_partes.get(parte, 0)
+                vida_util_val = VIDA_UTIL_DEFECTO
+                if "vida_util" in op_row.columns and not op_row.empty:
+                    vida_util_str = str(op_row["vida_util"].values[0])
+                    vidas_utiles = [int(v.strip()) if v.strip().isdigit() else VIDA_UTIL_DEFECTO for v in vida_util_str.split(";")]
+                    if idx < len(vidas_utiles):
+                        vida_util_val = vidas_utiles[idx]
+                porcentaje = min(usadas / vida_util_val, 1.0) if vida_util_val > 0 else 0
                 st.progress(porcentaje)
         else:
             st.info("Selecciona un equipo para ver el estado de consumibles.")
