@@ -493,6 +493,20 @@ if not equipos_zona_df.empty:
         equipos_alerta_map[f"{nombre}{alerta}"] = nombre
     equipo_seleccionado = st.selectbox("Selecciona el equipo:", equipos_lista, key="equipo_select")
     equipo_sel_nombre = equipos_alerta_map.get(equipo_seleccionado, None)
+    # Mostrar cantidad justo debajo del selector de equipo
+    if equipo_sel_nombre:
+        codigo_sel = equipo_sel_nombre.split(' - ')[0].strip()
+        op_row = equipos_zona_df[equipos_zona_df["codigo"] == codigo_sel]
+        if "cantidad" in op_row.columns and not op_row.empty:
+            cantidad_eq = op_row["cantidad"].values[0]
+            # Si el valor es None, NaN, vacío o no numérico, mostrar 0
+            try:
+                cantidad_eq = int(float(cantidad_eq))
+            except (ValueError, TypeError):
+                cantidad_eq = 0
+        else:
+            cantidad_eq = 0
+        st.markdown(f"**Cantidad de equipos:** `{cantidad_eq}`")
 else:
     equipo_seleccionado = None
     equipo_sel_nombre = None
@@ -530,17 +544,21 @@ else:
 if modo_auto:
     if now < start_time:
         st.info("La planta aún no ha arrancado hoy. El conteo inicia a las 7:00am.")
-        horas_avance = 0
+        minutos_avance = 0
     elif now > end_time:
-        horas_avance = 7.0
+        minutos_avance = 420  # 7 horas * 60 minutos
     else:
         delta = now - start_time
-        horas_avance = min(7.0, delta.total_seconds() / 3600)
-    st.markdown(f"**Horas transcurridas hoy:** `{horas_avance:.2f}` / 7.00 h")
-    st.progress(horas_avance / 7.0)
+        minutos_avance = min(420, int(delta.total_seconds() / 60))
+    horas = minutos_avance // 60
+    minutos = minutos_avance % 60
+    horas_formato = f"{horas}.{minutos:02d}"
+    st.markdown(f"**Horas transcurridas hoy:** `{horas_formato}` / 7.00 h")
+    st.progress(minutos_avance / 420)
 
     # Registro automático a las 2pm para TODOS los equipos de la empresa si no existe ya
     if now > end_time:
+        sheet_registro = client.open_by_key(SHEET_ID).worksheet("Hoja 1")
         data_registro = pd.DataFrame(sheet_registro_data)
         data_registro.columns = [col.lower().strip() for col in data_registro.columns]
         equipos_empresa = equipos_df[equipos_df["empresa"].str.strip().str.lower() == empresa.strip().lower()]
@@ -548,6 +566,7 @@ if modo_auto:
         for _, eq_row in equipos_empresa.iterrows():
             codigo = eq_row["codigo"]
             descripcion_eq = eq_row["descripcion"]
+            cantidad_eq = eq_row["cantidad"] if "cantidad" in eq_row else ""
             existe_registro = False
             if not data_registro.empty:
                 existe_registro = (
@@ -561,6 +580,7 @@ if modo_auto:
                     str(today),
                     codigo,
                     descripcion_eq,
+                    cantidad_eq,
                     7.0,
                     "",
                     "Registro automático de horas de uso"
@@ -568,7 +588,7 @@ if modo_auto:
                 sheet_registro.append_row(fila)
                 registros_realizados += 1
         if registros_realizados > 0:
-            st.success(f"Registro automático de 7 horas guardado para {registros_realizados} equipo(s) hoy.")
+            st.success(f"Registro automático de 7 horas guardado para {registros_realizados} equipo(s) hoy en Hoja 1.")
 
 # --- INFORMACIÓN DE LA EMPRESA (sidebar) ---
 st.sidebar.markdown("### 🏢 Información de la empresa seleccionada")
@@ -822,17 +842,8 @@ with st.form("registro_form"):
     if consumibles_equipo:
         partes = st.multiselect("Partes cambiadas hoy", consumibles_equipo)
     observaciones = st.text_area("Observaciones")
+    cantidad_eq = op_row["cantidad"].values[0] if "cantidad" in op_row.columns and not op_row.empty else ""
+    st.markdown(f"**Cantidad de equipos:** `{cantidad_eq}`")
     st.markdown("**Horas de uso del día:** `7` (valor fijo, automático)")
 
-    if st.form_submit_button("Guardar registro de cambio de partes"):
-        fila = [
-            empresa,
-            str(fecha),
-            codigo_sel,
-            descripcion,
-            0.0,  # No suma horas, solo cambio de partes
-            ";".join(partes),
-            observaciones
-        ]
-        sheet_registro.append_row(fila)
-        st.success("✅ Registro de cambio de partes guardado correctamente.")
+    # El formulario solo muestra la cantidad, no la modifica ni agrega filas a la hoja Equipos
