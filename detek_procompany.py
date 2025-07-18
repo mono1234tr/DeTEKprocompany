@@ -819,13 +819,20 @@ if equipo_seleccionado and isinstance(equipo_seleccionado, str) and not op_row.e
                 cantidad_consu_list = [c.strip() for c in cantidad_consu_str.split(";")]
 
             for _, fila in data_equipo.iterrows():
-                # Forzar 7 horas por registro diario
-                horas = 7.0
-                partes_cambiadas = str(fila.get("parte cambiada", "")).split(";")
-                for parte in consumibles_equipo:
-                    if parte in partes_cambiadas:
-                        estado_partes[parte] = 0
-                    else:
+                horas = fila.get("hora de uso", 0)
+                try:
+                    horas = float(horas)
+                except:
+                    horas = 0
+                partes_cambiadas = [p.strip() for p in str(fila.get("parte cambiada", "")).split(";") if p.strip()]
+                if partes_cambiadas:
+                    # Si hay partes cambiadas, solo reiniciar esas partes, no sumar horas a los demás
+                    for parte in consumibles_equipo:
+                        if parte in partes_cambiadas:
+                            estado_partes[parte] = 0
+                else:
+                    # Si no hay partes cambiadas, sumar horas a todos los consumibles
+                    for parte in consumibles_equipo:
                         estado_partes[parte] += horas
 
             # Mostrar cada consumible y debajo su cantidad
