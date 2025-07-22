@@ -725,7 +725,7 @@ if equipo_seleccionado and isinstance(equipo_seleccionado, str) and not op_row.e
     def get_drive_direct_url(url):
         """Convierte un enlace de Google Drive tipo /file/d/ID/view o sharing a enlace directo de visualización."""
         if not isinstance(url, str):
-            return url
+            url = str(url) if url is not None else ""
         # Buscar ID en diferentes formatos
         patterns = [
             r"/file/d/([\w-]+)",
@@ -744,10 +744,13 @@ if equipo_seleccionado and isinstance(equipo_seleccionado, str) and not op_row.e
     with st.expander("Información adicional del equipo", expanded=True):
         col1, col2 = st.columns(2)
         # Foto (solo enlace, sin previsualización)
-        foto_url = get_drive_direct_url(equipo_row.get("foto_url", ""))
+        foto_url = equipo_row.get("foto_url", "")
+        if not isinstance(foto_url, str):
+            foto_url = str(foto_url) if foto_url is not None else ""
+        foto_url = get_drive_direct_url(foto_url)
         with col1:
             st.markdown("**Foto del equipo:**")
-            if foto_url:
+            if foto_url and isinstance(foto_url, str) and foto_url.strip():
                 st.markdown(f'''
                     <a href="{foto_url}" target="_blank" style="
                         display: inline-block;
@@ -768,8 +771,11 @@ if equipo_seleccionado and isinstance(equipo_seleccionado, str) and not op_row.e
             else:
                 st.info("No hay foto disponible para este equipo.")
         # Manual
-        manual_url = get_drive_direct_url(equipo_row.get("manual_url", ""))
-        if manual_url:
+        manual_url = equipo_row.get("manual_url", "")
+        if not isinstance(manual_url, str):
+            manual_url = str(manual_url) if manual_url is not None else ""
+        manual_url = get_drive_direct_url(manual_url)
+        if manual_url and isinstance(manual_url, str) and manual_url.strip():
             with col2:
                 st.markdown("**Manual del equipo (PDF):**")
                 st.markdown(f'''
@@ -793,8 +799,11 @@ if equipo_seleccionado and isinstance(equipo_seleccionado, str) and not op_row.e
             with col2:
                 st.info("No hay manual PDF disponible para este equipo.")
         # Ficha técnica
-        ficha_url = get_drive_direct_url(equipo_row.get("ficha_tecnica_url", ""))
-        if ficha_url:
+        ficha_url = equipo_row.get("ficha_tecnica_url", "")
+        if not isinstance(ficha_url, str):
+            ficha_url = str(ficha_url) if ficha_url is not None else ""
+        ficha_url = get_drive_direct_url(ficha_url)
+        if ficha_url and isinstance(ficha_url, str) and ficha_url.strip():
             st.markdown("**Ficha técnica:**")
             st.markdown(f"[Ver ficha técnica]({ficha_url})", unsafe_allow_html=True)
         else:
