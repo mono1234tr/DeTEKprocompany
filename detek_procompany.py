@@ -221,9 +221,10 @@ for _, row in empresas_df.iterrows():
 import streamlit.components.v1 as components
 
 # --- FUNCION SLUGIFY ---
+import urllib.parse
 def slugify_empresa(nombre):
-    import urllib.parse
     return urllib.parse.quote_plus(nombre.strip().replace(' ', '_').lower())
+
 
 
 
