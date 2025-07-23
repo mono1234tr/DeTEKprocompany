@@ -240,6 +240,22 @@ if hash_empresa:
 
 seleccion_empresa = st.selectbox("Selecciona la empresa:", empresas_visible, index=empresa_idx, key="empresa_select")
 empresa = empresa_mapa[seleccion_empresa]
+
+# --- ENLACE DIRECTO A LA EMPRESA SELECCIONADA ---
+empresa_slug = slugify_empresa(empresa)
+link_empresa = f"https://detekprocompany.streamlit.app/#{empresa_slug}"
+st.markdown(f"🔗 <b>Enlace directo a esta empresa:</b> <a href='{link_empresa}' target='_blank'>{link_empresa}</a>", unsafe_allow_html=True)
+
+# --- ACTUALIZAR HASH DE LA URL AL CAMBIAR EMPRESA ---
+import streamlit.components.v1 as components
+components.html(f"""
+    <script>
+        const empresaSlug = '{empresa_slug}';
+        if (window.location.hash.replace('#','') !== empresaSlug) {{
+            window.location.hash = empresaSlug;
+        }}
+    </script>
+""", height=0)
 if st.sidebar.radio("Ir a:", ["Panel", "Dashboard"]) == "Dashboard":
     st.markdown("##  Dashboard general")
 
