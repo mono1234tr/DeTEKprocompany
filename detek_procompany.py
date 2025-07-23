@@ -226,7 +226,9 @@ def slugify_empresa(nombre):
     return urllib.parse.quote_plus(nombre.strip().replace(' ', '_').lower())
 
 
-# --- LEER EMPRESA DESDE QUERY PARAM ---
+
+
+# --- LEER EMPRESA DESDE QUERY PARAM (usando st.query_params, API moderna) ---
 empresa_slug_param = st.query_params.get("empresa_slug", None)
 empresa_idx = 0
 if empresa_slug_param:
@@ -242,12 +244,12 @@ empresa = empresa_mapa[seleccion_empresa]
 # --- ACTUALIZAR QUERY PARAM Y RECARGAR SOLO SI EL USUARIO CAMBIA LA EMPRESA ---
 empresa_slug = slugify_empresa(empresa)
 if empresa_slug_param != empresa_slug:
-    st.experimental_set_query_params(empresa_slug=empresa_slug)
-    st.experimental_rerun()
+    st.query_params.update({"empresa_slug": empresa_slug})
+    st.rerun()
 
 # --- ENLACE DIRECTO A LA EMPRESA SELECCIONADA (QUERY PARAM) ---
 link_empresa = f"https://detekprocompany.streamlit.app/?empresa_slug={empresa_slug}"
-st.markdown(f"🔗 <b>Enlace directo a esta empresa:</b> <a href='{link_empresa}' target='_blank'>{link_empresa}</a>", unsafe_allow_html=True)
+#st.markdown(f"🔗 <b>Enlace directo a esta empresa:</b> <a href='{link_empresa}' target='_blank'>{link_empresa}</a>", unsafe_allow_html=True)
 
 if st.sidebar.radio("Ir a:", ["Panel", "Dashboard"]) == "Dashboard":
     st.markdown("##  Dashboard general")
