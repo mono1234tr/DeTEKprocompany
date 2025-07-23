@@ -239,14 +239,16 @@ if empresa_slug_param:
 seleccion_empresa = st.selectbox("Selecciona la empresa:", empresas_visible, index=empresa_idx, key="empresa_select")
 empresa = empresa_mapa[seleccion_empresa]
 
-# --- ENLACE DIRECTO A LA EMPRESA SELECCIONADA (QUERY PARAM) ---
+# --- ACTUALIZAR QUERY PARAM Y RECARGAR SOLO SI EL USUARIO CAMBIA LA EMPRESA ---
 empresa_slug = slugify_empresa(empresa)
+if empresa_slug_param != empresa_slug:
+    st.experimental_set_query_params(empresa_slug=empresa_slug)
+    st.experimental_rerun()
+
+# --- ENLACE DIRECTO A LA EMPRESA SELECCIONADA (QUERY PARAM) ---
 link_empresa = f"https://detekprocompany.streamlit.app/?empresa_slug={empresa_slug}"
 st.markdown(f"🔗 <b>Enlace directo a esta empresa:</b> <a href='{link_empresa}' target='_blank'>{link_empresa}</a>", unsafe_allow_html=True)
 
-# --- ACTUALIZAR QUERY PARAM SOLO SI CAMBIA ---
-if empresa_slug_param != empresa_slug:
-    st.experimental_set_query_params(empresa_slug=empresa_slug)
 if st.sidebar.radio("Ir a:", ["Panel", "Dashboard"]) == "Dashboard":
     st.markdown("##  Dashboard general")
 
