@@ -218,44 +218,33 @@ for _, row in empresas_df.iterrows():
         empresas_visible.append(f"{nombre}{alerta}")
         empresa_mapa[f"{nombre}{alerta}"] = nombre
 
-# --- SINCRONIZAR EMPRESA CON HASH DE LA URL ---
 import streamlit.components.v1 as components
 
-# Obtener el hash de la URL usando query_params (nuevo API)
-hash_empresa = st.query_params.get("empresa_slug", [None])[0] if hasattr(st, 'query_params') else None
-
-# Función para obtener el slug de una empresa
+# --- FUNCION SLUGIFY ---
 def slugify_empresa(nombre):
     import urllib.parse
     return urllib.parse.quote_plus(nombre.strip().replace(' ', '_').lower())
 
-# Buscar el índice de la empresa por el hash (si existe)
+# --- LEER EMPRESA DESDE QUERY PARAM ---
+empresa_slug_param = st.query_params.get("empresa_slug", None)
 empresa_idx = 0
-if hash_empresa:
+if empresa_slug_param:
     for idx, visible in enumerate(empresas_visible):
         nombre = empresa_mapa[visible]
-        if slugify_empresa(nombre) == hash_empresa:
+        if slugify_empresa(nombre) == empresa_slug_param:
             empresa_idx = idx
             break
 
 seleccion_empresa = st.selectbox("Selecciona la empresa:", empresas_visible, index=empresa_idx, key="empresa_select")
 empresa = empresa_mapa[seleccion_empresa]
 
-# --- ENLACE DIRECTO A LA EMPRESA SELECCIONADA ---
+# --- ENLACE DIRECTO A LA EMPRESA SELECCIONADA (QUERY PARAM) ---
 empresa_slug = slugify_empresa(empresa)
-link_empresa = f"https://detekprocompany.streamlit.app/#{empresa_slug}"
+link_empresa = f"https://detekprocompany.streamlit.app/?empresa_slug={empresa_slug}"
 st.markdown(f"🔗 <b>Enlace directo a esta empresa:</b> <a href='{link_empresa}' target='_blank'>{link_empresa}</a>", unsafe_allow_html=True)
 
-# --- ACTUALIZAR HASH DE LA URL AL CAMBIAR EMPRESA ---
-import streamlit.components.v1 as components
-components.html(f"""
-    <script>
-        const empresaSlug = '{empresa_slug}';
-        if (window.location.hash.replace('#','') !== empresaSlug) {{
-            window.location.hash = empresaSlug;
-        }}
-    </script>
-""", height=0)
+# --- ACTUALIZAR QUERY PARAM AL CAMBIAR EMPRESA ---
+st.experimental_set_query_params(empresa_slug=empresa_slug)
 if st.sidebar.radio("Ir a:", ["Panel", "Dashboard"]) == "Dashboard":
     st.markdown("##  Dashboard general")
 
