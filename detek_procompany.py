@@ -157,7 +157,15 @@ def cargar_datos_sheet():
 
 sheet_registro_data, sheet_empresas_data, sheet_chat_data, sheet_tareas_data = cargar_datos_sheet()
 sheet_tareas = get_or_create_sheet_tareas(client, SHEET_ID)
-sheet_chat = client.open_by_key(SHEET_ID).worksheet("Chat")
+try:
+    sheet_chat = client.open_by_key(SHEET_ID).worksheet("Chat")
+except gspread.exceptions.APIError as e:
+    st.error(f"Error de API al conectar con la hoja 'Chat': {e}. La funcionalidad del chat puede estar limitada.")
+    sheet_chat = None # Continuar sin el objeto sheet_chat
+except Exception as e:
+    st.error(f"No se pudo abrir la hoja 'Chat': {e}. La funcionalidad del chat puede estar limitada.")
+    sheet_chat = None # Continuar sin el objeto sheet_chat
+
 sheet_registro = client.open_by_key(SHEET_ID).worksheet("Hoja 1")
 # --- AVISO DE MODO OFFLINE Y BOTÓN DE REINTENTO ---
 if st.session_state.get('modo_offline', False):
@@ -232,27 +240,28 @@ def slugify_empresa(nombre):
 # --- LEER EMPRESA DESDE QUERY PARAM (usando st.query_params, API moderna) ---
 empresa_slug_param = st.query_params.get("empresa_slug", None)
 empresa_idx = 0
-if empresa_slug_param:
-    for idx, visible in enumerate(empresas_visible):
-        nombre = empresa_mapa[visible]
-        if slugify_empresa(nombre) == empresa_slug_param:
-            empresa_idx = idx
-            break
 
-seleccion_empresa = st.selectbox("Selecciona la empresa:", empresas_visible, index=empresa_idx, key="empresa_select")
-empresa = empresa_mapa[seleccion_empresa]
+# Mostrar selectbox solo en el Panel
+panel_dashboard = st.sidebar.radio("Ir a:", ["Panel", "Dashboard"])
+if panel_dashboard == "Panel":
+    empresa_slug_param = st.query_params.get("empresa_slug", None)
+    empresa_idx = 0
+    if empresa_slug_param:
+        for idx, visible in enumerate(empresas_visible):
+            nombre = empresa_mapa[visible]
+            if slugify_empresa(nombre) == empresa_slug_param:
+                empresa_idx = idx
+                break
+    seleccion_empresa = st.selectbox("Selecciona la empresa:", empresas_visible, index=empresa_idx, key="empresa_select")
+    empresa = empresa_mapa[seleccion_empresa]
+    empresa_slug = slugify_empresa(empresa)
+    if empresa_slug_param != empresa_slug:
+        st.query_params.update({"empresa_slug": empresa_slug})
+        st.rerun()
+    link_empresa = f"https://detekprocompany.streamlit.app/?empresa_slug={empresa_slug}"
+    # ...existing code for Panel...
 
-# --- ACTUALIZAR QUERY PARAM Y RECARGAR SOLO SI EL USUARIO CAMBIA LA EMPRESA ---
-empresa_slug = slugify_empresa(empresa)
-if empresa_slug_param != empresa_slug:
-    st.query_params.update({"empresa_slug": empresa_slug})
-    st.rerun()
-
-# --- ENLACE DIRECTO A LA EMPRESA SELECCIONADA (QUERY PARAM) ---
-link_empresa = f"https://detekprocompany.streamlit.app/?empresa_slug={empresa_slug}"
-#st.markdown(f"🔗 <b>Enlace directo a esta empresa:</b> <a href='{link_empresa}' target='_blank'>{link_empresa}</a>", unsafe_allow_html=True)
-
-if st.sidebar.radio("Ir a:", ["Panel", "Dashboard"]) == "Dashboard":
+elif panel_dashboard == "Dashboard":
     st.markdown("##  Dashboard general")
 
     # Total de empresas y equipos
@@ -272,25 +281,31 @@ if st.sidebar.radio("Ir a:", ["Panel", "Dashboard"]) == "Dashboard":
     for parte, count in partes_frecuentes.items():
         st.markdown(f"- `{parte}`: `{count}` cambios")
 
-    # Equipos críticos
-    st.markdown("###  Equipos con partes en estado crítico")
-    equipos_criticos = []
+    # Consumibles críticos y cerca de cumplir vida útil
+    st.markdown("### Estado General de Consumibles")
+    
+    consumibles_alertas = []
 
     for _, row in equipos_df.iterrows():
-        empresa_k = row["empresa"]
-        codigo_k = row["codigo"]
-        consumibles = [c.strip() for c in str(row.get("consumibles", "")).split(",")]
+        empresa_k = row.get("empresa", "")
+        codigo_k = row.get("codigo", "")
+        descripcion_k = row.get("descripcion", "")
+        consumibles = [c.strip() for c in str(row.get("consumibles", "")).split(",") if c.strip()]
         vida_util_str = str(row.get("vida_util", ""))
-        vidas_utiles = [int(v.strip()) if v.strip().isdigit() else VIDA_UTIL_DEFECTO for v in vida_util_str.split(",")]
+        vidas_utiles = [int(v.strip()) if v.strip().isdigit() else VIDA_UTIL_DEFECTO for v in vida_util_str.split(";")]
 
-        data_equipo = data_registro[(data_registro["empresa"] == empresa_k) & (data_registro["codigo"] == codigo_k)]
+        data_registro = pd.DataFrame(sheet_registro_data)
+        if not data_registro.empty:
+            data_registro.columns = [col.lower().strip() for col in data_registro.columns]
+
         estado_partes = {parte: 0 for parte in consumibles}
-
+        data_equipo = data_registro[(data_registro["empresa"].str.strip().str.lower() == empresa_k.strip().lower()) & (data_registro["codigo"] == codigo_k)] if not data_registro.empty else pd.DataFrame()
+        
         for _, fila in data_equipo.iterrows():
             horas = fila.get("hora de uso", 0)
             try:
                 horas = float(horas)
-            except:
+            except (ValueError, TypeError):
                 horas = 0
             partes_cambiadas = str(fila.get("parte cambiada", "")).split(";")
             for parte in estado_partes:
@@ -300,17 +315,47 @@ if st.sidebar.radio("Ir a:", ["Panel", "Dashboard"]) == "Dashboard":
                     estado_partes[parte] += horas
 
         for idx, parte in enumerate(consumibles):
-            usadas = estado_partes[parte]
+            usadas = estado_partes.get(parte, 0)
             vida = vidas_utiles[idx] if idx < len(vidas_utiles) else VIDA_UTIL_DEFECTO
-            if vida - usadas <= 24:
-                equipos_criticos.append(f"{empresa_k} - {codigo_k}")
-                break
+            
+            if vida == 0: continue
 
-    if equipos_criticos:
-        for eq in equipos_criticos:
-            st.markdown(f"- ⚠️ `{eq}`")
+            horas_restantes = vida - usadas
+            
+            if horas_restantes <= 72:  # Unificamos la condición
+                estado_emoji = "🔴" if horas_restantes <= 0 else "🟡"
+                info = {
+                    "Estado": estado_emoji,
+                    "Consumible": parte,
+                    "Empresa": empresa_k,
+                    "Equipo": f"{codigo_k} - {descripcion_k}",
+                    "Horas Usadas": round(usadas, 1),
+                    "Vida Útil (h)": vida,
+                    "Horas Restantes": int(horas_restantes)
+                }
+                consumibles_alertas.append(info)
+
+    if consumibles_alertas:
+        alertas_df = pd.DataFrame(consumibles_alertas)
+        # Ordenar por horas restantes para ver los más críticos primero
+        alertas_df = alertas_df.sort_values(by="Horas Restantes", ascending=True)
+        
+        st.markdown("Consumibles que requieren atención (críticos y próximos a vencer):")
+        st.dataframe(
+            alertas_df,
+            use_container_width=True,
+            column_config={
+                "Horas Restantes": st.column_config.ProgressColumn(
+                    "Horas Restantes",
+                    help="Horas de vida útil que quedan. Las barras negativas indican que se ha sobrepasado la vida útil.",
+                    format="%d h",
+                    min_value=int(min(0, alertas_df["Horas Restantes"].min())),
+                    max_value=72,
+                )
+            }
+        )
     else:
-        st.markdown("- ✅ Sin equipos en estado crítico.")
+        st.info("✅ No hay consumibles en estado crítico o próximos a vencer.")
 
     # Equipos con más horas acumuladas
     st.markdown("### ⏱️ Top 5 equipos con más horas acumuladas")
@@ -336,8 +381,14 @@ if st.sidebar.radio("Ir a:", ["Panel", "Dashboard"]) == "Dashboard":
     dashboard_text += "Partes más cambiadas:\n"
     for parte, count in partes_frecuentes.items():
         dashboard_text += f"- {parte}: {count} cambios\n"
-    dashboard_text += "\nEquipos críticos:\n"
-    dashboard_text += "\n".join(equipos_criticos or ["Sin equipos en estado crítico"]) + "\n"
+    dashboard_text += "\nConsumibles que requieren atención:\n"
+    if consumibles_alertas:
+        alertas_df_report = pd.DataFrame(consumibles_alertas)
+        alertas_df_report = alertas_df_report.sort_values(by="Horas Restantes", ascending=True)
+        for _, eq in alertas_df_report.iterrows():
+            dashboard_text += f"- {eq['Estado']} Empresa: {eq['Empresa']} | Equipo: {eq['Equipo']} | Consumible: {eq['Consumible']} | Restantes: {int(eq['Horas Restantes'])} h\n"
+    else:
+        dashboard_text += "No hay consumibles en estado crítico o próximos a vencer.\n"
     dashboard_text += "\nTop 5 equipos por horas acumuladas:\n"
     for equipo, horas in top_horas:
         dashboard_text += f"- {equipo}: {horas:.1f} horas\n"
@@ -369,6 +420,7 @@ if not info_empresa_row.empty:
     layout_url = info_empresa_row.get("layout_url", "")
     qr_url = info_empresa_row.get("qr_url", "")
     parametrosproce_url = info_empresa_row.get("parametrosproce_url", "")
+    
     # Convertir el link de layout, qr y parametrosproce si es de Google Drive
     def get_drive_viewable_url(url):
         if not isinstance(url, str):
@@ -388,6 +440,7 @@ if not info_empresa_row.empty:
     layout_url_view = get_drive_viewable_url(layout_url)
     qr_url_view = get_drive_viewable_url(qr_url)
     parametrosproce_url_view = get_drive_viewable_url(parametrosproce_url)
+    
     # Generar link único por empresa (slug amigable)
     import urllib.parse
     empresa_slug = urllib.parse.quote_plus(empresa.strip().replace(' ', '_').lower())
@@ -406,6 +459,37 @@ if not info_empresa_row.empty:
                 </a>
             </div>
         ''', unsafe_allow_html=True)
+
+    # --- NUEVO: Expander para Información Adicional ---
+    desprese = info_empresa_row.get("desprese", "No especificado")
+    porcentaje_desprese = info_empresa_row.get("porcentaje_desprese", "")
+    tipo_pollo = info_empresa_row.get("tipo_pollo", "No especificado")
+    peso_min_pollo = info_empresa_row.get("peso_min_pollo", "")
+    peso_max_pollo = info_empresa_row.get("peso_max_pollo", "")
+    tipo_venta = info_empresa_row.get("tipo_venta", "No especificado")
+    marinado = info_empresa_row.get("marinado", "No especificado")
+
+    # Verificar si hay al menos un dato adicional para mostrar el expander
+    info_adicional_disponible = any([
+        str(desprese).strip().lower() not in ["", "no especificado"],
+        str(porcentaje_desprese).strip(),
+        str(tipo_pollo).strip().lower() not in ["", "no especificado"],
+        str(peso_min_pollo).strip(),
+        str(peso_max_pollo).strip(),
+        str(tipo_venta).strip().lower() not in ["", "no especificado"],
+        str(marinado).strip().lower() not in ["", "no especificado"]
+    ])
+
+    if info_adicional_disponible:
+        with st.expander("Información Adicional de la Empresa", expanded=False):
+            st.markdown(f"**¿Realiza desprese?** `{desprese}`")
+            if str(desprese).strip().lower() == 'si' and str(porcentaje_desprese).strip():
+                st.markdown(f"**Porcentaje de Desprese:** `{porcentaje_desprese}%`")
+            st.markdown(f"**Tipo de Pollo:** `{tipo_pollo}`")
+            if str(peso_min_pollo).strip() and str(peso_max_pollo).strip():
+                st.markdown(f"**Peso del Pollo:** Entre `{peso_min_pollo}` kg y `{peso_max_pollo}` kg")
+            st.markdown(f"**Tipo de Venta:** `{tipo_venta}`")
+            st.markdown(f"**¿Se marina el pollo?** `{marinado}`")
 
 
 # 3. Selección de zona (ahora desde la columna 'zona' de la hoja 'equipos')
@@ -474,7 +558,7 @@ if not equipos_zona_df.empty:
         alerta = ''
         consumibles = [c.strip() for c in str(row.get('consumibles','')).split(",") if c.strip()]
         vida_util_str = str(row.get('vida_util',''))
-        vidas_utiles = [int(v.strip()) if v.strip().isdigit() else 700 for v in vida_util_str.split(",")]
+        vidas_utiles = [int(v.strip()) if v.strip().isdigit() else 700 for v in vida_util_str.split(";")]
         # Buscar registros de uso
         data_registro = pd.DataFrame(sheet_registro_data)
         data_registro.columns = [col.lower().strip() for col in data_registro.columns]
@@ -717,7 +801,7 @@ with st.sidebar.expander(chat_title, expanded=False):
     st.markdown("---")
     mensaje_chat = st.text_input("Mensaje:", value="", key="chat_mensaje_company")
     if st.button("Enviar mensaje", key="chat_enviar_company"):
-        if mensaje_chat.strip():
+        if sheet_chat and mensaje_chat.strip():
             sheet_chat.append_row([
                 str(datetime.now()),
                 empresa,  # El nombre de usuario será el de la empresa
@@ -729,6 +813,8 @@ with st.sidebar.expander(chat_title, expanded=False):
             st.session_state['empresa_chat_leido'] = empresa
             time.sleep(1)
             st.rerun()
+        elif not sheet_chat:
+            st.error("No se puede enviar el mensaje. La conexión con la hoja de Chat no está disponible.")
 
 # --- INFORMACIÓN MULTIMEDIA DEL EQUIPO EN EXPANDER ---
 
@@ -845,15 +931,11 @@ if equipo_seleccionado and isinstance(equipo_seleccionado, str) and not op_row.e
                     horas = float(horas)
                 except:
                     horas = 0
-                partes_cambiadas = [p.strip() for p in str(fila.get("parte cambiada", "")).split(";") if p.strip()]
-                if partes_cambiadas:
-                    # Si hay partes cambiadas, solo reiniciar esas partes, no sumar horas a los demás
-                    for parte in consumibles_equipo:
-                        if parte in partes_cambiadas:
-                            estado_partes[parte] = 0
-                else:
-                    # Si no hay partes cambiadas, sumar horas a todos los consumibles
-                    for parte in consumibles_equipo:
+                partes_cambiadas = str(fila.get("parte cambiada", "")).split(";")
+                for parte in consumibles_equipo:
+                    if parte in partes_cambiadas:
+                        estado_partes[parte] = 0
+                    else:
                         estado_partes[parte] += horas
 
             # Mostrar cada consumible y debajo su cantidad
@@ -923,4 +1005,3 @@ with st.form("registro_form"):
         st.session_state["registro_form-Partes cambiadas hoy"] = []
         st.session_state["registro_form-Observaciones"] = ""
         st.success("Registro guardado correctamente.")
-
