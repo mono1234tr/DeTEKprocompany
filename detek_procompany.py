@@ -360,19 +360,32 @@ elif panel_dashboard == "Dashboard":
     # Equipos con más horas acumuladas
     st.markdown("### ⏱️ Top 5 equipos con más horas acumuladas")
     horas_acumuladas = {}
+    detalles_equipo = {}
 
     for _, fila in data_registro.iterrows():
-        key = f"{fila['empresa']} - {fila['codigo']}"
+        empresa_val = fila.get('empresa', '')
+        codigo_val = fila.get('codigo', '')
+        descripcion_val = fila.get('descripcion', '')
+        key = f"{empresa_val} - {codigo_val}"
         horas = fila.get("hora de uso", 0)
         try:
             horas = float(horas)
         except:
             horas = 0
         horas_acumuladas[key] = horas_acumuladas.get(key, 0) + horas
+        detalles_equipo[key] = {
+            "empresa": empresa_val,
+            "codigo": codigo_val,
+            "descripcion": descripcion_val
+        }
 
     top_horas = sorted(horas_acumuladas.items(), key=lambda x: x[1], reverse=True)[:5]
-    for equipo, horas in top_horas:
-        st.markdown(f"- 🕒 `{equipo}`: `{horas:.1f}` horas")
+    for equipo_key, horas in top_horas:
+        info = detalles_equipo.get(equipo_key, {})
+        empresa_txt = info.get("empresa", "")
+        codigo_txt = info.get("codigo", "")
+        descripcion_txt = info.get("descripcion", "")
+        st.markdown(f"- 🕒 **Empresa:** `{empresa_txt}` | **Código:** `{codigo_txt}` | **Descripción:** `{descripcion_txt}` | **Horas:** `{horas:.1f}`")
 
     # Simulación exportación a PDF
     dashboard_text = "Resumen Dashboard DeTEK PRO Company\n\n"
@@ -532,6 +545,9 @@ for zona_norm, zona_amigable in orden_zonas:
 for z in zonas_unicas:
     znorm = z.strip().lower()
     zona_amigable = z.replace('_', ' ').title()
+    # Ocultar zonas vacías
+    if not znorm or zona_amigable.strip() == '':
+        continue
     if znorm not in [o[0] for o in orden_zonas] and zona_amigable not in zonas_agregadas:
         equipos_zona = equipos_df[(equipos_df["empresa"].str.strip().str.lower() == empresa.strip().lower()) & (equipos_df["zona"].str.strip().str.lower() == znorm)]
         alerta = ''
@@ -840,6 +856,9 @@ if equipo_seleccionado and isinstance(equipo_seleccionado, str) and not op_row.e
 
     equipo_row = op_row.squeeze()
     with st.expander("Información adicional del equipo", expanded=True):
+        # Mostrar número de OP si existe
+        op_numero = equipo_row.get("op", "No disponible")
+        st.markdown(f"**Número de OP:** `{op_numero}`")
         col1, col2 = st.columns(2)
         # Foto (solo enlace, sin previsualización)
         foto_url = equipo_row.get("foto_url", "")
