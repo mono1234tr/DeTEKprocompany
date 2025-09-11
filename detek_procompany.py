@@ -7,6 +7,14 @@ from google.oauth2.service_account import Credentials
 import gspread
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
+
+# Configuración de la página
+st.set_page_config(
+    page_title="DeTEK PRO COMPANY",
+    page_icon="",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 # --- AUTENTICACIÓN ---
 USUARIO_CORRECTO = "admin"
 CONTRASENA_CORRECTA = "1234"
@@ -859,72 +867,96 @@ if equipo_seleccionado and isinstance(equipo_seleccionado, str) and not op_row.e
         # Mostrar número de OP si existe
         op_numero = equipo_row.get("op", "No disponible")
         st.markdown(f"**Número de OP:** `{op_numero}`")
-        col1, col2 = st.columns(2)
-        # Foto (solo enlace, sin previsualización)
+        
+        # Definimos columnas solo si vamos a mostrar botones
+        tiene_foto = False
+        tiene_manual = False
+        
+        # Verificación estricta de la foto
         foto_url = equipo_row.get("foto_url", "")
-        if not isinstance(foto_url, str):
-            foto_url = str(foto_url) if foto_url is not None else ""
-        foto_url = get_drive_direct_url(foto_url)
-        with col1:
-            st.markdown("**Foto del equipo:**")
-            if foto_url and isinstance(foto_url, str) and foto_url.strip():
-                st.markdown(f'''
-                    <a href="{foto_url}" target="_blank" style="
-                        display: inline-block;
-                        padding: 0.5em 1.2em;
-                        background: #00BDAD;
-                        color: white;
-                        border: none;
-                        border-radius: 1.5em;
-                        text-decoration: none;
-                        font-weight: bold;
-                        font-size: 1.1em;
-                        margin-bottom: 1em;
-                        transition: background 0.2s;
-                    " onmouseover="this.style.background='#009e90'" onmouseout="this.style.background='#00BDAD'">
-                        IMAGEN EQUIPO
-                    </a>
-                ''', unsafe_allow_html=True)
-            else:
-                st.info("No hay foto disponible para este equipo.")
-        # Manual
+        if isinstance(foto_url, str) and foto_url.strip():
+            foto_url = get_drive_direct_url(foto_url)
+            tiene_foto = True
+        
+        # Verificación estricta del manual
         manual_url = equipo_row.get("manual_url", "")
-        if not isinstance(manual_url, str):
-            manual_url = str(manual_url) if manual_url is not None else ""
-        manual_url = get_drive_direct_url(manual_url)
-        if manual_url and isinstance(manual_url, str) and manual_url.strip():
-            with col2:
-                st.markdown("**Manual del equipo (PDF):**")
-                st.markdown(f'''
-                    <a href="{manual_url}" target="_blank" style="
-                        display: inline-block;
-                        padding: 0.5em 1.2em;
-                        background: #0072C6;
-                        color: white;
-                        border: none;
-                        border-radius: 1.5em;
-                        text-decoration: none;
-                        font-weight: bold;
-                        font-size: 1.1em;
-                        margin-bottom: 1em;
-                        transition: background 0.2s;
-                    " onmouseover="this.style.background='#005fa3'" onmouseout="this.style.background='#0072C6'">
-                        MANUAL PDF
-                    </a>
-                ''', unsafe_allow_html=True)
-        else:
-            with col2:
-                st.info("No hay manual PDF disponible para este equipo.")
-        # Ficha técnica
+        if isinstance(manual_url, str) and manual_url.strip():
+            manual_url = get_drive_direct_url(manual_url)
+            tiene_manual = True
+        
+        # Verificación estricta de la ficha técnica
         ficha_url = equipo_row.get("ficha_tecnica_url", "")
-        if not isinstance(ficha_url, str):
-            ficha_url = str(ficha_url) if ficha_url is not None else ""
-        ficha_url = get_drive_direct_url(ficha_url)
-        if ficha_url and isinstance(ficha_url, str) and ficha_url.strip():
+        if isinstance(ficha_url, str) and ficha_url.strip():
+            ficha_url = get_drive_direct_url(ficha_url)
+        
+        # Solo crear columnas si hay al menos un botón para mostrar
+        if tiene_foto or tiene_manual:
+            col1, col2 = st.columns(2)
+            
+            # Foto (solo si tiene URL válida)
+            if tiene_foto:
+                with col1:
+                    st.markdown("**Foto del equipo:**")
+                    st.markdown(f'''
+                        <a href="{foto_url}" target="_blank" style="
+                            display: inline-block;
+                            padding: 0.5em 1.2em;
+                            background: #00BDAD;
+                            color: white;
+                            border: none;
+                            border-radius: 1.5em;
+                            text-decoration: none;
+                            font-weight: bold;
+                            font-size: 1.1em;
+                            margin-bottom: 1em;
+                            transition: background 0.2s;
+                        " onmouseover="this.style.background='#009e90'" onmouseout="this.style.background='#00BDAD'">
+                            IMAGEN EQUIPO
+                        </a>
+                    ''', unsafe_allow_html=True)
+            
+            # Manual (solo si tiene URL válida)
+            if tiene_manual:
+                with col2:
+                    st.markdown("**Manual del equipo (PDF):**")
+                    st.markdown(f'''
+                        <a href="{manual_url}" target="_blank" style="
+                            display: inline-block;
+                            padding: 0.5em 1.2em;
+                            background: #0072C6;
+                            color: white;
+                            border: none;
+                            border-radius: 1.5em;
+                            text-decoration: none;
+                            font-weight: bold;
+                            font-size: 1.1em;
+                            margin-bottom: 1em;
+                            transition: background 0.2s;
+                        " onmouseover="this.style.background='#005fa3'" onmouseout="this.style.background='#0072C6'">
+                            MANUAL PDF
+                        </a>
+                    ''', unsafe_allow_html=True)
+        
+        # Ficha técnica (solo si tiene URL válida)
+        if isinstance(ficha_url, str) and ficha_url.strip():
             st.markdown("**Ficha técnica:**")
-            st.markdown(f"[Ver ficha técnica]({ficha_url})", unsafe_allow_html=True)
-        else:
-            st.info("No hay ficha técnica disponible para este equipo.")
+            st.markdown(f'''
+                <a href="{ficha_url}" target="_blank" style="
+                    display: inline-block;
+                    padding: 0.5em 1.2em;
+                    background: #F39C12;
+                    color: white;
+                    border: none;
+                    border-radius: 1.5em;
+                    text-decoration: none;
+                    font-weight: bold;
+                    font-size: 1.1em;
+                    margin-bottom: 1em;
+                    transition: background 0.2s;
+                " onmouseover="this.style.background='#e08e0b'" onmouseout="this.style.background='#F39C12'">
+                    FICHA TÉCNICA
+                </a>
+            ''', unsafe_allow_html=True)
         # Fecha de instalación
         fecha_inst = equipo_row.get("fecha_instalacion", "No disponible")
         st.markdown(f"**Fecha de instalación:** {fecha_inst}")
