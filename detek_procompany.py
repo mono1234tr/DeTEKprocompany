@@ -786,6 +786,71 @@ with st.sidebar.expander("➕ Agregar nueva tarea"):
             st.success("Tarea agregada correctamente.")
             st.rerun()
 
+# --- REGISTRAR NUEVO EQUIPO ---
+st.sidebar.markdown("---")
+with st.sidebar.expander("🔧 Registrar nuevo equipo"):
+    with st.form("form_registro_equipo"):
+        nueva_empresa = st.text_input("Empresa", value=empresa)
+        
+        # Campo de zona con opciones de zonas comunes
+        zonas_opciones = ["Zona Recibo", "Zona Sacrificio", "Zona Evisceracion", 
+                          "Zona Enfriamiento", "Zona Empaque", "Transportador Aéreo", "General", "Otra"]
+        zona_seleccion = st.selectbox("Zona", zonas_opciones)
+        
+        # Permitir especificar otra zona si selecciona "Otra"
+        if zona_seleccion == "Otra":
+            nueva_zona = st.text_input("Especificar zona", "")
+        else:
+            nueva_zona = zona_seleccion
+            
+        nuevo_codigo = st.text_input("Código del equipo (Ej: RF999)")
+        nueva_descripcion = st.text_input("Descripción del equipo")
+        nuevos_consumibles = st.text_input("Consumibles (separados por coma)")
+        
+        # Nuevo campo para horas de uso inicial
+        horas_iniciales = st.number_input("Horas de uso iniciales", min_value=0.0, step=0.5, value=0.0)
+        
+        # Campos opcionales para URLs de documentación
+        st.markdown("**Enlaces a documentación (opcional):**")
+        nueva_foto_url = st.text_input("URL de la foto del equipo", value="")
+        nuevo_manual_url = st.text_input("URL del manual de operación", value="")
+        nueva_ficha_url = st.text_input("URL de la ficha técnica", value="")
+        
+        submitted = st.form_submit_button("Guardar equipo")
+    
+    if submitted:
+        # Convertir nombre de zona al formato usado en la hoja (convertir a lowercase para consistencia)
+        zona_norm = nueva_zona.lower()
+        
+        # Crear una fila para agregar a la hoja de equipos
+        fila = [
+            nueva_empresa.strip(),
+            nuevo_codigo.strip(),
+            nueva_descripcion.strip(),
+            nuevos_consumibles.strip(),
+            "",  # Para descripcion_consumibles
+            "",  # Para vida_util
+            "sí",  # Para alertas_activas
+            zona_norm.strip(),  # Para zona
+            "",  # Para numero_op
+            nueva_foto_url.strip(),  # Para foto_url
+            "",  # Para fecha_instalacion
+            nuevo_manual_url.strip(),  # Para manual_url
+            nueva_ficha_url.strip(),  # Para ficha_tecnica_url
+            str(horas_iniciales)  # Nuevo campo para horas iniciales
+        ]
+        
+        try:
+            # Obtener la hoja de equipos y agregar la nueva fila
+            sheet_equipos = client.open_by_key(SHEET_ID).worksheet("Equipos")
+            sheet_equipos.append_row(fila)
+            
+            st.success(f"✅ Equipo {nuevo_codigo} registrado correctamente en zona {nueva_zona}.")
+            # Recargar la página para ver los cambios
+            st.rerun()
+        except Exception as e:
+            st.error(f"Error al registrar el equipo: {e}")
+
 # --- CHAT EN LÍNEA ENTRE APPS ---
 # --- INDICADOR DE MENSAJES NUEVOS ---
 chat_df_indicator = pd.DataFrame(sheet_chat_data)
@@ -828,7 +893,7 @@ with st.sidebar.expander(chat_title, expanded=False):
         if sheet_chat and mensaje_chat.strip():
             sheet_chat.append_row([
                 str(datetime.now()),
-                empresa,  # El nombre de usuario será el de la empresa
+                "Soporte tecnico",  # Nombre fijo para el chat
                 mensaje_chat.strip(),
                 empresa
             ])
