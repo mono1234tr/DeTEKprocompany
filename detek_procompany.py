@@ -11,7 +11,7 @@ from googleapiclient.http import MediaIoBaseUpload
 # Configuración de la página
 st.set_page_config(
     page_title="DeTEK PRO COMPANY",
-    page_icon="",
+    page_icon="🧠",
     layout="wide",
     initial_sidebar_state="expanded"
 )
