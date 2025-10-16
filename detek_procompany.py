@@ -11,10 +11,76 @@ from googleapiclient.http import MediaIoBaseUpload
 # Configuración de la página
 st.set_page_config(
     page_title="DeTEK PRO COMPANY",
-    page_icon="🧠",
+    page_icon="",
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# --- CSS PERSONALIZADO PARA OCULTAR ELEMENTOS DE GITHUB ---
+hide_github_css = """
+    <style>
+    /* Ocultar absolutamente todos los elementos de GitHub y elementos no esenciales */
+    /* Botones superiores de GitHub */
+    .css-1jc7ptx, .e1ewe7hr3, .viewerBadge_container__1QSob, .styles_viewerBadge__1yB5,
+    .viewerBadge_link__1S137, .viewerBadge_text__1JaDK, .css-1rs6os {
+        display: none !important;
+    }
+    
+    /* Elementos específicos de GitHub por sus IDs */
+    #github-fork-button, #github-star-button, #github-link,
+    button[aria-label*="GitHub"], button[title*="GitHub"],
+    button[aria-label*="github"], button[title*="github"] {
+        display: none !important;
+    }
+    
+    /* Botones en la esquina superior */
+    .main-header {
+        visibility: hidden !important;
+    }
+    
+    /* Todos los botones en la esquina superior derecha */
+    div[data-testid="stToolbar"] {
+        visibility: hidden !important;
+    }
+    
+    /* Botón de Fork y el menú de tres puntos */
+    header[data-testid="stHeader"] {
+        visibility: hidden !important;
+    }
+    
+    /* Botón de GitHub en la esquina de la página */
+    .css-r698ie e8zbici2 {
+        visibility: hidden !important;
+    }
+    
+    /* Para los íconos específicos mostrados en la imagen */
+    img[src*="github"], svg[data-icon*="github"] {
+        display: none !important;
+    }
+    
+    /* Elementos por su ubicación aproximada */
+    .stDeployButton {
+        display: none !important;
+    }
+    
+    /* Cualquier otro elemento con referencias a GitHub */
+    *[class*="github"], *[id*="github"], *[data-testid*="github"],
+    *[class*="Github"], *[id*="Github"], *[data-testid*="Github"] {
+        display: none !important;
+    }
+    
+    /* Ocultar iconos SVG y botones específicos */
+    svg {
+        visibility: hidden !important;
+    }
+    
+    /* Botón hamburguesa de menú y opciones */
+    button[kind="icon"], button[data-testid="baseButton-headerNoPadding"] {
+        visibility: hidden !important;
+    }
+    </style>
+"""
+st.markdown(hide_github_css, unsafe_allow_html=True)
 # --- AUTENTICACIÓN ---
 USUARIO_CORRECTO = "admin"
 CONTRASENA_CORRECTA = "1234"
@@ -197,7 +263,7 @@ empresas_visible = []
 empresa_mapa = {}
 for _, row in empresas_df.iterrows():
     if 'empresa' in row:
-        nombre = row['empresa']
+        nombre = row.get('empresa', '')
         alerta = ''
         equipos_empresa = equipos_df[equipos_df["empresa"].str.strip().str.lower() == nombre.strip().lower()]
         for _, eq_row in equipos_empresa.iterrows():
@@ -206,7 +272,8 @@ for _, row in empresas_df.iterrows():
             vidas_utiles = [int(v.strip()) if v.strip().isdigit() else 700 for v in vida_util_str.split(";")]
             data_registro = pd.DataFrame(sheet_registro_data)
             data_registro.columns = [col.lower().strip() for col in data_registro.columns]
-            data_equipo = data_registro[(data_registro["empresa"].str.strip().str.lower() == nombre.strip().lower()) & (data_registro["codigo"] == eq_row['codigo'])] if not data_registro.empty else pd.DataFrame()
+            codigo_equipo = eq_row.get('codigo', eq_row.get('código', ''))
+            data_equipo = data_registro[(data_registro["empresa"].str.strip().str.lower() == nombre.strip().lower()) & (data_registro["codigo"] == codigo_equipo)] if not data_registro.empty and codigo_equipo else pd.DataFrame()
             estado_partes = {parte: 0 for parte in consumibles}
             for _, fila in data_equipo.iterrows():
                 horas = fila.get("hora de uso", 0)
@@ -577,7 +644,9 @@ equipos_lista = []
 equipos_alerta_map = {}
 if not equipos_zona_df.empty:
     for _, row in equipos_zona_df.iterrows():
-        nombre = f"{row['codigo']} - {row['descripcion']}"
+        codigo = row.get('codigo', row.get('código', 'N/A'))
+        descripcion = row.get('descripcion', row.get('descripción', 'Sin descripción'))
+        nombre = f"{codigo} - {descripcion}"
         # Revisar estado de consumibles si existen
         alerta = ''
         consumibles = [c.strip() for c in str(row.get('consumibles','')).split(",") if c.strip()]
@@ -586,7 +655,8 @@ if not equipos_zona_df.empty:
         # Buscar registros de uso
         data_registro = pd.DataFrame(sheet_registro_data)
         data_registro.columns = [col.lower().strip() for col in data_registro.columns]
-        data_equipo = data_registro[(data_registro["empresa"].str.strip().str.lower() == empresa.strip().lower()) & (data_registro["codigo"] == row['codigo'])] if not data_registro.empty else pd.DataFrame()
+        codigo_equipo = row.get('codigo', row.get('código', ''))
+        data_equipo = data_registro[(data_registro["empresa"].str.strip().str.lower() == empresa.strip().lower()) & (data_registro["codigo"] == codigo_equipo)] if not data_registro.empty and codigo_equipo else pd.DataFrame()
         estado_partes = {parte: 0 for parte in consumibles}
         for _, fila in data_equipo.iterrows():
             horas = fila.get("hora de uso", 0)
