@@ -283,11 +283,13 @@ equipos_df = pd.DataFrame(sheet_equipos_data)
 equipos_df.columns = [col.lower().strip() for col in equipos_df.columns]
 
 # DEBUG: Mostrar columnas disponibles (solo para depuración)
-# st.write("DEBUG - Columnas en equipos_df:", list(equipos_df.columns))
+st.write("DEBUG - Columnas en equipos_df:", list(equipos_df.columns))
 
 # --- EMPRESAS ÚNICAS Y ALERTAS ---
 empresas_df = pd.DataFrame(sheet_empresas_data)
 empresas_df.columns = [col.lower().strip() for col in empresas_df.columns]
+st.write("DEBUG - Columnas en empresas_df:", list(empresas_df.columns))
+st.write("DEBUG - Primeras filas de equipos_df:", equipos_df.head() if not equipos_df.empty else "DataFrame vacío")
 empresas_visible = []
 empresa_mapa = {}
 for _, row in empresas_df.iterrows():
@@ -768,9 +770,20 @@ if equipo_sel_nombre:
         op_row = pd.DataFrame()  # DataFrame vacío si no encuentra la columna
         
     op_equipo = op_row["op"].values[0] if "op" in equipos_zona_df.columns and not op_row.empty else "No disponible"
-    descripcion = op_row["descripcion"].values[0] if "descripcion" in equipos_zona_df.columns and not op_row.empty else "No disponible"
+    # Buscar descripción de forma segura
+    if "descripcion" in equipos_zona_df.columns and not op_row.empty:
+        descripcion = op_row["descripcion"].values[0]
+    elif "descripción" in equipos_zona_df.columns and not op_row.empty:
+        descripcion = op_row["descripción"].values[0]
+    else:
+        descripcion = "No disponible"
+        
     if not op_row.empty:
-        consumibles_equipo = [c.strip() for c in op_row["consumibles"].values[0].split(",") if c.strip()]
+        # Buscar consumibles de forma segura
+        if "consumibles" in equipos_zona_df.columns:
+            consumibles_equipo = [c.strip() for c in str(op_row["consumibles"].values[0]).split(",") if c.strip()]
+        else:
+            consumibles_equipo = []
     else:
         consumibles_equipo = []
 else:
@@ -803,8 +816,10 @@ if modo_auto:
         equipos_empresa = equipos_df[equipos_df["empresa"].str.strip().str.lower() == empresa.strip().lower()]
         registros_realizados = 0
         for _, eq_row in equipos_empresa.iterrows():
-            codigo = eq_row["codigo"]
-            descripcion_eq = eq_row["descripcion"]
+            codigo = eq_row.get("codigo", eq_row.get("código", ""))
+            descripcion_eq = eq_row.get("descripcion", eq_row.get("descripción", ""))
+            if not codigo:  # Si no hay código, saltar este equipo
+                continue
             existe_registro = False
             if not data_registro.empty:
                 existe_registro = (
@@ -870,10 +885,10 @@ if not tareas_df.empty and cols_needed.issubset(set(tareas_df.columns)):
     if not tareas_empresa.empty:
         for idx, tarea_row in tareas_empresa.iterrows():
             try:
-                tarea_texto = tarea_row["tarea"]
-                descripcion = tarea_row["descripcion"]
-                fecha_asignacion = tarea_row["fecha_asignacion"]
-                completada_val = str(tarea_row["completada"]).strip().lower()
+                tarea_texto = tarea_row.get("tarea", "")
+                descripcion = tarea_row.get("descripcion", tarea_row.get("descripción", ""))
+                fecha_asignacion = tarea_row.get("fecha_asignacion", "")
+                completada_val = str(tarea_row.get("completada", "")).strip().lower()
                 # Acepta 'si', 'sí', 'SI', 'Sí', etc.
                 completada = completada_val in ["si", "sí"]
                 estado = "✅ Completada" if completada else "⏳ Pendiente"
