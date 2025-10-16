@@ -117,12 +117,14 @@ def buscar_equipo_por_codigo(df, codigo, columna_empresa=None, empresa=None):
     if df.empty:
         return pd.DataFrame()
     
-    # Buscar la columna de código
+    # Buscar la columna de código (después de la corrección de columna vacía, debería ser 'codigo')
     col_codigo = None
     if "codigo" in df.columns:
         col_codigo = "codigo"
     elif "código" in df.columns:
         col_codigo = "código"
+    elif "" in df.columns:  # Por si no se renombró correctamente
+        col_codigo = ""
     else:
         return pd.DataFrame()  # No hay columna de código
     
@@ -282,14 +284,14 @@ sheet_equipos_data = cached_get_all_records(SHEET_ID, "Equipos")
 equipos_df = pd.DataFrame(sheet_equipos_data)
 equipos_df.columns = [col.lower().strip() for col in equipos_df.columns]
 
-# DEBUG: Mostrar columnas disponibles (solo para depuración)
-st.write("DEBUG - Columnas en equipos_df:", list(equipos_df.columns))
+# Corregir columna vacía que debería ser 'codigo'
+if "" in equipos_df.columns:
+    # Renombrar la columna vacía a 'codigo' 
+    equipos_df = equipos_df.rename(columns={"": "codigo"})
 
 # --- EMPRESAS ÚNICAS Y ALERTAS ---
 empresas_df = pd.DataFrame(sheet_empresas_data)
 empresas_df.columns = [col.lower().strip() for col in empresas_df.columns]
-st.write("DEBUG - Columnas en empresas_df:", list(empresas_df.columns))
-st.write("DEBUG - Primeras filas de equipos_df:", equipos_df.head() if not equipos_df.empty else "DataFrame vacío")
 empresas_visible = []
 empresa_mapa = {}
 for _, row in empresas_df.iterrows():
