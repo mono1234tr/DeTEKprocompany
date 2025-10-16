@@ -109,6 +109,32 @@ if 'ultimo_error_sheet' not in st.session_state:
     st.session_state['ultimo_error_sheet'] = ''
 
 
+# --- FUNCIÓN AUXILIAR PARA BUSCAR EQUIPOS DE FORMA SEGURA ---
+def buscar_equipo_por_codigo(df, codigo, columna_empresa=None, empresa=None):
+    """
+    Busca un equipo por código de forma segura, manejando diferentes nombres de columnas
+    """
+    if df.empty:
+        return pd.DataFrame()
+    
+    # Buscar la columna de código
+    col_codigo = None
+    if "codigo" in df.columns:
+        col_codigo = "codigo"
+    elif "código" in df.columns:
+        col_codigo = "código"
+    else:
+        return pd.DataFrame()  # No hay columna de código
+    
+    # Filtrar por código
+    if columna_empresa and empresa:
+        # Filtrar también por empresa
+        return df[(df[col_codigo] == codigo) & (df[columna_empresa].str.strip().str.lower() == empresa.strip().lower())]
+    else:
+        # Solo filtrar por código
+        return df[df[col_codigo] == codigo]
+
+
 # --- CACHÉ EN MEMORIA PARA GOOGLE SHEETS (TTL extendido) ---
 @st.cache_data(show_spinner=False, ttl=30, max_entries=50)
 def cached_get_all_records(sheet_key, worksheet_name):
@@ -256,6 +282,9 @@ sheet_equipos_data = cached_get_all_records(SHEET_ID, "Equipos")
 equipos_df = pd.DataFrame(sheet_equipos_data)
 equipos_df.columns = [col.lower().strip() for col in equipos_df.columns]
 
+# DEBUG: Mostrar columnas disponibles (solo para depuración)
+# st.write("DEBUG - Columnas en equipos_df:", list(equipos_df.columns))
+
 # --- EMPRESAS ÚNICAS Y ALERTAS ---
 empresas_df = pd.DataFrame(sheet_empresas_data)
 empresas_df.columns = [col.lower().strip() for col in empresas_df.columns]
@@ -341,7 +370,13 @@ elif panel_dashboard == "Dashboard":
 
     # Total de empresas y equipos
     total_empresas = len(equipos_df["empresa"].unique())
-    total_equipos = len(equipos_df["codigo"].unique())
+    # Buscar columna codigo de forma segura
+    if "codigo" in equipos_df.columns:
+        total_equipos = len(equipos_df["codigo"].unique())
+    elif "código" in equipos_df.columns:
+        total_equipos = len(equipos_df["código"].unique())
+    else:
+        total_equipos = len(equipos_df)  # Contar todas las filas si no hay columna codigo
     st.markdown(f"-  **Empresas registradas:** `{total_empresas}`")
     st.markdown(f"-  **Equipos registrados:** `{total_equipos}`")
 
@@ -724,9 +759,16 @@ modo_auto = True  # Siempre automático
 
 if equipo_sel_nombre:
     codigo_sel = equipo_sel_nombre.split(' - ')[0].strip()
-    op_row = equipos_zona_df[equipos_zona_df["codigo"] == codigo_sel]
-    op_equipo = op_row["op"].values[0] if "op" in op_row.columns and not op_row.empty else "No disponible"
-    descripcion = op_row["descripcion"].values[0] if not op_row.empty else "No disponible"
+    # Buscar por codigo de forma segura
+    if "codigo" in equipos_zona_df.columns:
+        op_row = equipos_zona_df[equipos_zona_df["codigo"] == codigo_sel]
+    elif "código" in equipos_zona_df.columns:
+        op_row = equipos_zona_df[equipos_zona_df["código"] == codigo_sel]
+    else:
+        op_row = pd.DataFrame()  # DataFrame vacío si no encuentra la columna
+        
+    op_equipo = op_row["op"].values[0] if "op" in equipos_zona_df.columns and not op_row.empty else "No disponible"
+    descripcion = op_row["descripcion"].values[0] if "descripcion" in equipos_zona_df.columns and not op_row.empty else "No disponible"
     if not op_row.empty:
         consumibles_equipo = [c.strip() for c in op_row["consumibles"].values[0].split(",") if c.strip()]
     else:
@@ -1184,7 +1226,13 @@ with st.form("registro_form"):
         sheet_registro.append_row(fila)
         # Si se cambió alguna parte, reiniciar la columna 'hora de uso' en la hoja de equipos
         if partes and 'codigo_sel' in locals():
-            idx_equipo = equipos_df[(equipos_df["empresa"].str.strip().str.lower() == empresa.strip().lower()) & (equipos_df["codigo"] == codigo_sel)].index
+            # Buscar por codigo de forma segura
+            if "codigo" in equipos_df.columns:
+                idx_equipo = equipos_df[(equipos_df["empresa"].str.strip().str.lower() == empresa.strip().lower()) & (equipos_df["codigo"] == codigo_sel)].index
+            elif "código" in equipos_df.columns:
+                idx_equipo = equipos_df[(equipos_df["empresa"].str.strip().str.lower() == empresa.strip().lower()) & (equipos_df["código"] == codigo_sel)].index
+            else:
+                idx_equipo = pd.Index([])  # Índice vacío si no encuentra la columna
             if len(idx_equipo) > 0:
                 idx = idx_equipo[0]
                 # Reiniciar 'hora de uso' a 0 (si existe la columna)
