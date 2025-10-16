@@ -11,76 +11,10 @@ from googleapiclient.http import MediaIoBaseUpload
 # Configuración de la página
 st.set_page_config(
     page_title="DeTEK PRO COMPANY",
-    page_icon="",
+    page_icon="🧠",
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
-# --- CSS PERSONALIZADO PARA OCULTAR ELEMENTOS DE GITHUB ---
-hide_github_css = """
-    <style>
-    /* Ocultar absolutamente todos los elementos de GitHub y elementos no esenciales */
-    /* Botones superiores de GitHub */
-    .css-1jc7ptx, .e1ewe7hr3, .viewerBadge_container__1QSob, .styles_viewerBadge__1yB5,
-    .viewerBadge_link__1S137, .viewerBadge_text__1JaDK, .css-1rs6os {
-        display: none !important;
-    }
-    
-    /* Elementos específicos de GitHub por sus IDs */
-    #github-fork-button, #github-star-button, #github-link,
-    button[aria-label*="GitHub"], button[title*="GitHub"],
-    button[aria-label*="github"], button[title*="github"] {
-        display: none !important;
-    }
-    
-    /* Botones en la esquina superior */
-    .main-header {
-        visibility: hidden !important;
-    }
-    
-    /* Todos los botones en la esquina superior derecha */
-    div[data-testid="stToolbar"] {
-        visibility: hidden !important;
-    }
-    
-    /* Botón de Fork y el menú de tres puntos */
-    header[data-testid="stHeader"] {
-        visibility: hidden !important;
-    }
-    
-    /* Botón de GitHub en la esquina de la página */
-    .css-r698ie e8zbici2 {
-        visibility: hidden !important;
-    }
-    
-    /* Para los íconos específicos mostrados en la imagen */
-    img[src*="github"], svg[data-icon*="github"] {
-        display: none !important;
-    }
-    
-    /* Elementos por su ubicación aproximada */
-    .stDeployButton {
-        display: none !important;
-    }
-    
-    /* Cualquier otro elemento con referencias a GitHub */
-    *[class*="github"], *[id*="github"], *[data-testid*="github"],
-    *[class*="Github"], *[id*="Github"], *[data-testid*="Github"] {
-        display: none !important;
-    }
-    
-    /* Ocultar iconos SVG y botones específicos */
-    svg {
-        visibility: hidden !important;
-    }
-    
-    /* Botón hamburguesa de menú y opciones */
-    button[kind="icon"], button[data-testid="baseButton-headerNoPadding"] {
-        visibility: hidden !important;
-    }
-    </style>
-"""
-st.markdown(hide_github_css, unsafe_allow_html=True)
 # --- AUTENTICACIÓN ---
 USUARIO_CORRECTO = "admin"
 CONTRASENA_CORRECTA = "1234"
@@ -107,34 +41,6 @@ if 'modo_offline' not in st.session_state:
     st.session_state['modo_offline'] = False
 if 'ultimo_error_sheet' not in st.session_state:
     st.session_state['ultimo_error_sheet'] = ''
-
-
-# --- FUNCIÓN AUXILIAR PARA BUSCAR EQUIPOS DE FORMA SEGURA ---
-def buscar_equipo_por_codigo(df, codigo, columna_empresa=None, empresa=None):
-    """
-    Busca un equipo por código de forma segura, manejando diferentes nombres de columnas
-    """
-    if df.empty:
-        return pd.DataFrame()
-    
-    # Buscar la columna de código (después de la corrección de columna vacía, debería ser 'codigo')
-    col_codigo = None
-    if "codigo" in df.columns:
-        col_codigo = "codigo"
-    elif "código" in df.columns:
-        col_codigo = "código"
-    elif "" in df.columns:  # Por si no se renombró correctamente
-        col_codigo = ""
-    else:
-        return pd.DataFrame()  # No hay columna de código
-    
-    # Filtrar por código
-    if columna_empresa and empresa:
-        # Filtrar también por empresa
-        return df[(df[col_codigo] == codigo) & (df[columna_empresa].str.strip().str.lower() == empresa.strip().lower())]
-    else:
-        # Solo filtrar por código
-        return df[df[col_codigo] == codigo]
 
 
 # --- CACHÉ EN MEMORIA PARA GOOGLE SHEETS (TTL extendido) ---
@@ -284,11 +190,6 @@ sheet_equipos_data = cached_get_all_records(SHEET_ID, "Equipos")
 equipos_df = pd.DataFrame(sheet_equipos_data)
 equipos_df.columns = [col.lower().strip() for col in equipos_df.columns]
 
-# Corregir columna vacía que debería ser 'codigo'
-if "" in equipos_df.columns:
-    # Renombrar la columna vacía a 'codigo' 
-    equipos_df = equipos_df.rename(columns={"": "codigo"})
-
 # --- EMPRESAS ÚNICAS Y ALERTAS ---
 empresas_df = pd.DataFrame(sheet_empresas_data)
 empresas_df.columns = [col.lower().strip() for col in empresas_df.columns]
@@ -296,7 +197,7 @@ empresas_visible = []
 empresa_mapa = {}
 for _, row in empresas_df.iterrows():
     if 'empresa' in row:
-        nombre = row.get('empresa', '')
+        nombre = row['empresa']
         alerta = ''
         equipos_empresa = equipos_df[equipos_df["empresa"].str.strip().str.lower() == nombre.strip().lower()]
         for _, eq_row in equipos_empresa.iterrows():
@@ -305,8 +206,7 @@ for _, row in empresas_df.iterrows():
             vidas_utiles = [int(v.strip()) if v.strip().isdigit() else 700 for v in vida_util_str.split(";")]
             data_registro = pd.DataFrame(sheet_registro_data)
             data_registro.columns = [col.lower().strip() for col in data_registro.columns]
-            codigo_equipo = eq_row.get('codigo', eq_row.get('código', ''))
-            data_equipo = data_registro[(data_registro["empresa"].str.strip().str.lower() == nombre.strip().lower()) & (data_registro["codigo"] == codigo_equipo)] if not data_registro.empty and codigo_equipo else pd.DataFrame()
+            data_equipo = data_registro[(data_registro["empresa"].str.strip().str.lower() == nombre.strip().lower()) & (data_registro["codigo"] == eq_row['codigo'])] if not data_registro.empty else pd.DataFrame()
             estado_partes = {parte: 0 for parte in consumibles}
             for _, fila in data_equipo.iterrows():
                 horas = fila.get("hora de uso", 0)
@@ -374,13 +274,7 @@ elif panel_dashboard == "Dashboard":
 
     # Total de empresas y equipos
     total_empresas = len(equipos_df["empresa"].unique())
-    # Buscar columna codigo de forma segura
-    if "codigo" in equipos_df.columns:
-        total_equipos = len(equipos_df["codigo"].unique())
-    elif "código" in equipos_df.columns:
-        total_equipos = len(equipos_df["código"].unique())
-    else:
-        total_equipos = len(equipos_df)  # Contar todas las filas si no hay columna codigo
+    total_equipos = len(equipos_df["codigo"].unique())
     st.markdown(f"-  **Empresas registradas:** `{total_empresas}`")
     st.markdown(f"-  **Equipos registrados:** `{total_equipos}`")
 
@@ -683,9 +577,7 @@ equipos_lista = []
 equipos_alerta_map = {}
 if not equipos_zona_df.empty:
     for _, row in equipos_zona_df.iterrows():
-        codigo = row.get('codigo', row.get('código', 'N/A'))
-        descripcion = row.get('descripcion', row.get('descripción', 'Sin descripción'))
-        nombre = f"{codigo} - {descripcion}"
+        nombre = f"{row['codigo']} - {row['descripcion']}"
         # Revisar estado de consumibles si existen
         alerta = ''
         consumibles = [c.strip() for c in str(row.get('consumibles','')).split(",") if c.strip()]
@@ -694,8 +586,7 @@ if not equipos_zona_df.empty:
         # Buscar registros de uso
         data_registro = pd.DataFrame(sheet_registro_data)
         data_registro.columns = [col.lower().strip() for col in data_registro.columns]
-        codigo_equipo = row.get('codigo', row.get('código', ''))
-        data_equipo = data_registro[(data_registro["empresa"].str.strip().str.lower() == empresa.strip().lower()) & (data_registro["codigo"] == codigo_equipo)] if not data_registro.empty and codigo_equipo else pd.DataFrame()
+        data_equipo = data_registro[(data_registro["empresa"].str.strip().str.lower() == empresa.strip().lower()) & (data_registro["codigo"] == row['codigo'])] if not data_registro.empty else pd.DataFrame()
         estado_partes = {parte: 0 for parte in consumibles}
         for _, fila in data_equipo.iterrows():
             horas = fila.get("hora de uso", 0)
@@ -725,15 +616,8 @@ if not equipos_zona_df.empty:
     # Mostrar cantidad justo debajo del selector de equipo
     if equipo_sel_nombre:
         codigo_sel = equipo_sel_nombre.split(' - ')[0].strip()
-        # Buscar por codigo de forma segura
-        if "codigo" in equipos_zona_df.columns:
-            op_row = equipos_zona_df[equipos_zona_df["codigo"] == codigo_sel]
-        elif "código" in equipos_zona_df.columns:
-            op_row = equipos_zona_df[equipos_zona_df["código"] == codigo_sel]
-        else:
-            op_row = pd.DataFrame()  # DataFrame vacío si no encuentra la columna
-        
-        if "cantidad" in equipos_zona_df.columns and not op_row.empty:
+        op_row = equipos_zona_df[equipos_zona_df["codigo"] == codigo_sel]
+        if "cantidad" in op_row.columns and not op_row.empty:
             cantidad_eq = op_row["cantidad"].values[0]
             # Si el valor es None, NaN, vacío o no numérico, mostrar 0
             try:
@@ -763,29 +647,11 @@ modo_auto = True  # Siempre automático
 
 if equipo_sel_nombre:
     codigo_sel = equipo_sel_nombre.split(' - ')[0].strip()
-    # Buscar por codigo de forma segura
-    if "codigo" in equipos_zona_df.columns:
-        op_row = equipos_zona_df[equipos_zona_df["codigo"] == codigo_sel]
-    elif "código" in equipos_zona_df.columns:
-        op_row = equipos_zona_df[equipos_zona_df["código"] == codigo_sel]
-    else:
-        op_row = pd.DataFrame()  # DataFrame vacío si no encuentra la columna
-        
-    op_equipo = op_row["op"].values[0] if "op" in equipos_zona_df.columns and not op_row.empty else "No disponible"
-    # Buscar descripción de forma segura
-    if "descripcion" in equipos_zona_df.columns and not op_row.empty:
-        descripcion = op_row["descripcion"].values[0]
-    elif "descripción" in equipos_zona_df.columns and not op_row.empty:
-        descripcion = op_row["descripción"].values[0]
-    else:
-        descripcion = "No disponible"
-        
+    op_row = equipos_zona_df[equipos_zona_df["codigo"] == codigo_sel]
+    op_equipo = op_row["op"].values[0] if "op" in op_row.columns and not op_row.empty else "No disponible"
+    descripcion = op_row["descripcion"].values[0] if not op_row.empty else "No disponible"
     if not op_row.empty:
-        # Buscar consumibles de forma segura
-        if "consumibles" in equipos_zona_df.columns:
-            consumibles_equipo = [c.strip() for c in str(op_row["consumibles"].values[0]).split(",") if c.strip()]
-        else:
-            consumibles_equipo = []
+        consumibles_equipo = [c.strip() for c in op_row["consumibles"].values[0].split(",") if c.strip()]
     else:
         consumibles_equipo = []
 else:
@@ -818,10 +684,8 @@ if modo_auto:
         equipos_empresa = equipos_df[equipos_df["empresa"].str.strip().str.lower() == empresa.strip().lower()]
         registros_realizados = 0
         for _, eq_row in equipos_empresa.iterrows():
-            codigo = eq_row.get("codigo", eq_row.get("código", ""))
-            descripcion_eq = eq_row.get("descripcion", eq_row.get("descripción", ""))
-            if not codigo:  # Si no hay código, saltar este equipo
-                continue
+            codigo = eq_row["codigo"]
+            descripcion_eq = eq_row["descripcion"]
             existe_registro = False
             if not data_registro.empty:
                 existe_registro = (
@@ -887,10 +751,10 @@ if not tareas_df.empty and cols_needed.issubset(set(tareas_df.columns)):
     if not tareas_empresa.empty:
         for idx, tarea_row in tareas_empresa.iterrows():
             try:
-                tarea_texto = tarea_row.get("tarea", "")
-                descripcion = tarea_row.get("descripcion", tarea_row.get("descripción", ""))
-                fecha_asignacion = tarea_row.get("fecha_asignacion", "")
-                completada_val = str(tarea_row.get("completada", "")).strip().lower()
+                tarea_texto = tarea_row["tarea"]
+                descripcion = tarea_row["descripcion"]
+                fecha_asignacion = tarea_row["fecha_asignacion"]
+                completada_val = str(tarea_row["completada"]).strip().lower()
                 # Acepta 'si', 'sí', 'SI', 'Sí', etc.
                 completada = completada_val in ["si", "sí"]
                 estado = "✅ Completada" if completada else "⏳ Pendiente"
@@ -1243,13 +1107,7 @@ with st.form("registro_form"):
         sheet_registro.append_row(fila)
         # Si se cambió alguna parte, reiniciar la columna 'hora de uso' en la hoja de equipos
         if partes and 'codigo_sel' in locals():
-            # Buscar por codigo de forma segura
-            if "codigo" in equipos_df.columns:
-                idx_equipo = equipos_df[(equipos_df["empresa"].str.strip().str.lower() == empresa.strip().lower()) & (equipos_df["codigo"] == codigo_sel)].index
-            elif "código" in equipos_df.columns:
-                idx_equipo = equipos_df[(equipos_df["empresa"].str.strip().str.lower() == empresa.strip().lower()) & (equipos_df["código"] == codigo_sel)].index
-            else:
-                idx_equipo = pd.Index([])  # Índice vacío si no encuentra la columna
+            idx_equipo = equipos_df[(equipos_df["empresa"].str.strip().str.lower() == empresa.strip().lower()) & (equipos_df["codigo"] == codigo_sel)].index
             if len(idx_equipo) > 0:
                 idx = idx_equipo[0]
                 # Reiniciar 'hora de uso' a 0 (si existe la columna)
