@@ -686,8 +686,15 @@ if not equipos_zona_df.empty:
     # Mostrar cantidad justo debajo del selector de equipo
     if equipo_sel_nombre:
         codigo_sel = equipo_sel_nombre.split(' - ')[0].strip()
-        op_row = equipos_zona_df[equipos_zona_df["codigo"] == codigo_sel]
-        if "cantidad" in op_row.columns and not op_row.empty:
+        # Buscar por codigo de forma segura
+        if "codigo" in equipos_zona_df.columns:
+            op_row = equipos_zona_df[equipos_zona_df["codigo"] == codigo_sel]
+        elif "código" in equipos_zona_df.columns:
+            op_row = equipos_zona_df[equipos_zona_df["código"] == codigo_sel]
+        else:
+            op_row = pd.DataFrame()  # DataFrame vacío si no encuentra la columna
+        
+        if "cantidad" in equipos_zona_df.columns and not op_row.empty:
             cantidad_eq = op_row["cantidad"].values[0]
             # Si el valor es None, NaN, vacío o no numérico, mostrar 0
             try:
