@@ -278,7 +278,7 @@ def slugify_empresa(nombre):
 
 # --- FUNCIÓN PARA BUSCAR ACTAS DE ENTREGA POR OP ---
 def buscar_actas_por_op(numero_op, sheet_actas_data):
-    """Busca las imágenes del acta de entrega por número de OP"""
+    """Busca las imágenes del acta de entrega por número de OP - LIMPIO"""
     if not numero_op or not sheet_actas_data:
         return []
     
@@ -289,7 +289,7 @@ def buscar_actas_por_op(numero_op, sheet_actas_data):
     # Normalizar nombres de columnas  
     actas_df.columns = [col.lower().strip() for col in actas_df.columns]
     
-    st.info(f"🔍 **Buscando OP '{numero_op}' en columnas:** {', '.join(actas_df.columns)}")
+
     
     # Buscar por número de OP en TODAS las columnas posibles
     op_columns = []
@@ -301,23 +301,23 @@ def buscar_actas_por_op(numero_op, sheet_actas_data):
     # Si no encuentra columnas obvias, usar todas las columnas
     if not op_columns:
         op_columns = actas_df.columns.tolist()
-        st.warning("⚠️ No se encontraron columnas obvias de OP, buscando en todas las columnas")
+
     
     imagenes = []
     
     for col in op_columns:
         # Mostrar algunos valores de ejemplo
-        valores_ejemplo = actas_df[col].astype(str).str.strip().head(3).tolist()
-        st.info(f"� **Columna '{col}'** - Ejemplos: {valores_ejemplo}")
+
+        
         
         # Buscar coincidencias exactas
         matching_rows = actas_df[actas_df[col].astype(str).str.strip() == str(numero_op).strip()]
         
         if not matching_rows.empty:
-            st.success(f"🎯 **¡COINCIDENCIA ENCONTRADA!** OP '{numero_op}' en columna '{col}' ({len(matching_rows)} filas)")
+
             
             for idx, row in matching_rows.iterrows():
-                st.info(f"📄 **Procesando fila {idx + 1}:**")
+
                 urls_encontradas = 0
                 
                 # Buscar CUALQUIER columna que tenga un link de Drive
@@ -335,14 +335,12 @@ def buscar_actas_por_op(numero_op, sheet_actas_data):
                         
                         st.success(f"  � **Link encontrado en '{column}':** {valor[:50]}...")
                 
-                if urls_encontradas == 0:
-                    st.warning(f"  ❌ **No se encontraron links de Drive en la fila {idx + 1}**")
+
             
             break  # Si encontramos la OP, no buscar en otras columnas
         else:
-            st.info(f"❌ **Sin coincidencias** en columna '{col}'")
+            pass  # No se encontraron coincidencias en esta columna
     
-    st.info(f"📊 **Resultado final:** {len(imagenes)} documentos encontrados")
     return imagenes
 
 
@@ -1129,40 +1127,9 @@ if equipo_seleccionado and isinstance(equipo_seleccionado, str) and not op_row.e
         
         # --- ACTAS DE ENTREGA ---
         # Buscar actas de entrega por número de OP
-        st.markdown("### 🔍 **Diagnóstico de Actas de Entrega**")
+
         
         if op_numero and op_numero != "No disponible":
-            st.info(f"📊 Buscando documentos para OP: **{op_numero}** (tipo: {type(op_numero)})")
-            
-            # Verificar datos de la hoja
-            if not sheet_actas_data:
-                st.error("❌ **PROBLEMA:** No se pudieron cargar los datos de la hoja de actas")
-                st.markdown("**Verifica:**")
-                st.markdown("- La hoja esté compartida con la cuenta de servicio")
-                st.markdown("- El nombre sea exactamente: `actas de entregas diligenciadas`")
-            else:
-                st.success(f"✅ **Conexión exitosa:** {len(sheet_actas_data)} registros encontrados")
-                
-                # Mostrar una muestra de los datos para verificar la estructura
-                if len(sheet_actas_data) > 0:
-                    primer_registro = sheet_actas_data[0]
-                    st.info(f"📋 **Columnas en la hoja:** {list(primer_registro.keys())}")
-                    
-                    # Buscar columnas que podrían tener números de OP
-                    op_columns_found = []
-                    for col in primer_registro.keys():
-                        if any(term in col.lower() for term in ['op', 'orden', 'numero']):
-                            op_columns_found.append(col)
-                    
-                    if op_columns_found:
-                        st.success(f"🎯 **Columnas de OP encontradas:** {op_columns_found}")
-                        # Mostrar algunos valores de ejemplo
-                        for col in op_columns_found[:2]:  # Mostrar máximo 2 columnas
-                            valores = [str(registro.get(col, '')) for registro in sheet_actas_data[:3]]
-                            st.info(f"📝 **Valores de ejemplo en '{col}':** {valores}")
-                    else:
-                        st.warning("⚠️ **No se encontraron columnas que parezcan contener números de OP**")
-            
             imagenes_acta = buscar_actas_por_op(op_numero, sheet_actas_data)
             
             if imagenes_acta:
