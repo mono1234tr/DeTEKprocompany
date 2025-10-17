@@ -154,8 +154,9 @@ def cargar_datos_sheet():
         # Cargar datos de actas de entrega
         try:
             sheet_actas_data = cached_get_all_records(SHEET_ACTAS_ID, "actas de entregas diligenciadas")
-        except:
+        except Exception as e:
             sheet_actas_data = []
+            st.session_state['error_actas'] = str(e)
         st.session_state['modo_offline'] = False
         st.session_state['ultimo_error_sheet'] = ''
         return sheet_registro_data, sheet_empresas_data, sheet_chat_data, sheet_tareas_data, sheet_actas_data
@@ -168,6 +169,7 @@ def cargar_datos_sheet():
         sheet_chat_data = st.cache_data.get_cached_value(cached_get_all_records, (SHEET_ID, "Chat")) or []
         sheet_tareas_data = st.cache_data.get_cached_value(cached_get_all_records, (SHEET_ID, "Tareas")) or []
         sheet_actas_data = st.cache_data.get_cached_value(cached_get_all_records, (SHEET_ACTAS_ID, "actas de entregas diligenciadas")) or []
+        st.session_state['error_actas'] = str(e)
         return sheet_registro_data, sheet_empresas_data, sheet_chat_data, sheet_tareas_data, sheet_actas_data
 
 sheet_registro_data, sheet_empresas_data, sheet_chat_data, sheet_tareas_data, sheet_actas_data = cargar_datos_sheet()
@@ -187,6 +189,32 @@ if st.session_state.get('modo_offline', False):
     st.warning(f"No se pudo conectar con Google Sheets. Estás en modo offline temporal.\n\nError: {st.session_state.get('ultimo_error_sheet','')}")
     if st.button("Reintentar conexión con Google Sheets"):
         st.session_state['modo_offline'] = False
+        st.rerun()
+
+# --- AVISO DE ERROR EN HOJA DE ACTAS ---
+if st.session_state.get('error_actas'):
+    st.error(f"⚠️ **Problema con la hoja de actas:** {st.session_state.get('error_actas')}")
+    
+    # Mostrar email de la cuenta de servicio para compartir
+    try:
+        service_account_info = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
+        email_servicio = service_account_info.get("client_email", "No encontrado")
+        st.info(f"📧 **Email de tu cuenta de servicio:** `{email_servicio}`")
+        st.markdown("👆 **Comparte la hoja de actas con este email** (permisos de Lector)")
+    except:
+        st.warning("No se pudo obtener el email de la cuenta de servicio")
+    
+    st.info("💡 **Pasos para solucionar:**")
+    st.markdown("""
+    1. **Ve a la hoja:** https://docs.google.com/spreadsheets/d/1Vc7XnxhXfuus7WdGOvBjG08cLpW8awO0E7P4b3aLc4A/edit
+    2. **Haz clic en "Compartir"** (botón verde)
+    3. **Agrega el email de arriba** con permisos de "Lector"
+    4. **Verifica que la pestaña se llame:** `actas de entregas diligenciadas`
+    5. **Haz clic en "Enviar"**
+    """)
+    if st.button("🔄 Reintentar conexión con hoja de actas"):
+        if 'error_actas' in st.session_state:
+            del st.session_state['error_actas']
         st.rerun()
 
 # --- VIDA ÚTIL POR DEFECTO ---
@@ -258,38 +286,63 @@ def buscar_actas_por_op(numero_op, sheet_actas_data):
     if actas_df.empty:
         return []
     
-    # Normalizar nombres de columnas
+    # Normalizar nombres de columnas  
     actas_df.columns = [col.lower().strip() for col in actas_df.columns]
     
-    # Buscar por número de OP (puede estar en diferentes columnas)
-    op_columns = ['op', 'numero_op', 'no_op', 'orden_produccion']
+    st.info(f"🔍 **Buscando OP '{numero_op}' en columnas:** {', '.join(actas_df.columns)}")
+    
+    # Buscar por número de OP en TODAS las columnas posibles
+    op_columns = []
+    # Primero buscar columnas obvias de OP
+    for col in actas_df.columns:
+        if any(term in col for term in ['op', 'orden', 'numero', 'no']):
+            op_columns.append(col)
+    
+    # Si no encuentra columnas obvias, usar todas las columnas
+    if not op_columns:
+        op_columns = actas_df.columns.tolist()
+        st.warning("⚠️ No se encontraron columnas obvias de OP, buscando en todas las columnas")
+    
     imagenes = []
     
     for col in op_columns:
-        if col in actas_df.columns:
-            matching_rows = actas_df[actas_df[col].astype(str).str.strip() == str(numero_op).strip()]
+        # Mostrar algunos valores de ejemplo
+        valores_ejemplo = actas_df[col].astype(str).str.strip().head(3).tolist()
+        st.info(f"� **Columna '{col}'** - Ejemplos: {valores_ejemplo}")
+        
+        # Buscar coincidencias exactas
+        matching_rows = actas_df[actas_df[col].astype(str).str.strip() == str(numero_op).strip()]
+        
+        if not matching_rows.empty:
+            st.success(f"🎯 **¡COINCIDENCIA ENCONTRADA!** OP '{numero_op}' en columna '{col}' ({len(matching_rows)} filas)")
             
-            for _, row in matching_rows.iterrows():
-                # Buscar columnas que contengan URLs (más flexible)
+            for idx, row in matching_rows.iterrows():
+                st.info(f"📄 **Procesando fila {idx + 1}:**")
+                urls_encontradas = 0
+                
+                # Buscar CUALQUIER columna que tenga un link de Drive
                 for column in row.index:
-                    valor = row[column]
-                    # Verificar si el valor contiene un link de Google Drive
-                    if isinstance(valor, str) and valor.strip() and 'drive.google.com' in valor.lower():
-                        # Crear nombre amigable para la columna
+                    valor = str(row[column]).strip()
+                    if valor and 'drive.google.com' in valor.lower():
+                        urls_encontradas += 1
                         nombre_amigable = column.replace('_', ' ').replace('-', ' ').title()
-                        if 'url' in column.lower():
-                            nombre_amigable = nombre_amigable.replace('Url', '')
                         
                         imagenes.append({
-                            'nombre': nombre_amigable.strip(),
+                            'nombre': f"{nombre_amigable} (Fila {idx + 1})",
                             'url': get_drive_direct_url(valor),
                             'columna_original': column
                         })
+                        
+                        st.success(f"  � **Link encontrado en '{column}':** {valor[:50]}...")
+                
+                if urls_encontradas == 0:
+                    st.warning(f"  ❌ **No se encontraron links de Drive en la fila {idx + 1}**")
             
-            # Si encontramos coincidencias en esta columna, no buscar en otras
-            if imagenes:
-                break
+            break  # Si encontramos la OP, no buscar en otras columnas
+        else:
+            st.info(f"❌ **Sin coincidencias** en columna '{col}'")
     
+    st.info(f"📊 **Resultado final:** {len(imagenes)} documentos encontrados")
     return imagenes
 
 
@@ -1076,8 +1129,42 @@ if equipo_seleccionado and isinstance(equipo_seleccionado, str) and not op_row.e
         
         # --- ACTAS DE ENTREGA ---
         # Buscar actas de entrega por número de OP
+        st.markdown("### 🔍 **Diagnóstico de Actas de Entrega**")
+        
         if op_numero and op_numero != "No disponible":
+            st.info(f"📊 Buscando documentos para OP: **{op_numero}** (tipo: {type(op_numero)})")
+            
+            # Verificar datos de la hoja
+            if not sheet_actas_data:
+                st.error("❌ **PROBLEMA:** No se pudieron cargar los datos de la hoja de actas")
+                st.markdown("**Verifica:**")
+                st.markdown("- La hoja esté compartida con la cuenta de servicio")
+                st.markdown("- El nombre sea exactamente: `actas de entregas diligenciadas`")
+            else:
+                st.success(f"✅ **Conexión exitosa:** {len(sheet_actas_data)} registros encontrados")
+                
+                # Mostrar una muestra de los datos para verificar la estructura
+                if len(sheet_actas_data) > 0:
+                    primer_registro = sheet_actas_data[0]
+                    st.info(f"📋 **Columnas en la hoja:** {list(primer_registro.keys())}")
+                    
+                    # Buscar columnas que podrían tener números de OP
+                    op_columns_found = []
+                    for col in primer_registro.keys():
+                        if any(term in col.lower() for term in ['op', 'orden', 'numero']):
+                            op_columns_found.append(col)
+                    
+                    if op_columns_found:
+                        st.success(f"🎯 **Columnas de OP encontradas:** {op_columns_found}")
+                        # Mostrar algunos valores de ejemplo
+                        for col in op_columns_found[:2]:  # Mostrar máximo 2 columnas
+                            valores = [str(registro.get(col, '')) for registro in sheet_actas_data[:3]]
+                            st.info(f"📝 **Valores de ejemplo en '{col}':** {valores}")
+                    else:
+                        st.warning("⚠️ **No se encontraron columnas que parezcan contener números de OP**")
+            
             imagenes_acta = buscar_actas_por_op(op_numero, sheet_actas_data)
+            
             if imagenes_acta:
                 st.markdown("---")
                 st.markdown("### 📋 **Actas de Entrega**")
@@ -1138,6 +1225,14 @@ if equipo_seleccionado and isinstance(equipo_seleccionado, str) and not op_row.e
                 st.markdown("---")
                 total_docs = len(imagenes_acta)
                 st.info(f"✅ Total de documentos encontrados: **{total_docs}** para la OP **{op_numero}**")
+            else:
+                st.warning(f"❌ **No se encontraron documentos** para la OP: **{op_numero}**")
+                st.markdown("**Posibles causas:**")
+                st.markdown("- La OP no existe en la hoja de actas")
+                st.markdown("- El formato de la OP no coincide exactamente")
+                st.markdown("- No hay columnas con links de Google Drive para esta OP")
+        else:
+            st.info("ℹ️ **Selecciona un equipo** que tenga un número de OP válido para buscar documentos")
         
         
         # Fecha de instalación
