@@ -131,6 +131,7 @@ def get_or_create_sheet_tareas(client, SHEET_ID):
 
 client = get_gspread_client()
 SHEET_ID = "1288rxOwtZDI3A7kuLnR4AXaI-GKt6YizeZS_4ZvdTnQ"
+SHEET_ACTAS_ID = "1Vc7XnxhXfuus7WdGOvBjG08cLpW8awO0E7P4b3aLc4A"
 
 
 # --- INTENTAR CARGAR DATOS DE SHEETS, SI FALLA USAR CACHE Y MODO OFFLINE ---
@@ -150,9 +151,14 @@ def cargar_datos_sheet():
             ws = client.open_by_key(SHEET_ID).add_worksheet(title="Tareas", rows="1000", cols="6")
             ws.append_row(["empresa", "tarea", "asignada_por", "fecha_asignacion", "completada", "fecha_completada"])
             sheet_tareas_data = []
+        # Cargar datos de actas de entrega
+        try:
+            sheet_actas_data = cached_get_all_records(SHEET_ACTAS_ID, "actas de entregas diligenciadas")
+        except:
+            sheet_actas_data = []
         st.session_state['modo_offline'] = False
         st.session_state['ultimo_error_sheet'] = ''
-        return sheet_registro_data, sheet_empresas_data, sheet_chat_data, sheet_tareas_data
+        return sheet_registro_data, sheet_empresas_data, sheet_chat_data, sheet_tareas_data, sheet_actas_data
     except Exception as e:
         st.session_state['modo_offline'] = True
         st.session_state['ultimo_error_sheet'] = str(e)
@@ -161,9 +167,10 @@ def cargar_datos_sheet():
         sheet_empresas_data = st.cache_data.get_cached_value(cached_get_all_records, (SHEET_ID, "Empresas")) or []
         sheet_chat_data = st.cache_data.get_cached_value(cached_get_all_records, (SHEET_ID, "Chat")) or []
         sheet_tareas_data = st.cache_data.get_cached_value(cached_get_all_records, (SHEET_ID, "Tareas")) or []
-        return sheet_registro_data, sheet_empresas_data, sheet_chat_data, sheet_tareas_data
+        sheet_actas_data = st.cache_data.get_cached_value(cached_get_all_records, (SHEET_ACTAS_ID, "actas de entregas diligenciadas")) or []
+        return sheet_registro_data, sheet_empresas_data, sheet_chat_data, sheet_tareas_data, sheet_actas_data
 
-sheet_registro_data, sheet_empresas_data, sheet_chat_data, sheet_tareas_data = cargar_datos_sheet()
+sheet_registro_data, sheet_empresas_data, sheet_chat_data, sheet_tareas_data, sheet_actas_data = cargar_datos_sheet()
 sheet_tareas = get_or_create_sheet_tareas(client, SHEET_ID)
 try:
     sheet_chat = client.open_by_key(SHEET_ID).worksheet("Chat")
@@ -240,6 +247,40 @@ import streamlit.components.v1 as components
 import urllib.parse
 def slugify_empresa(nombre):
     return urllib.parse.quote_plus(nombre.strip().replace(' ', '_').lower())
+
+# --- FUNCIÓN PARA BUSCAR ACTAS DE ENTREGA POR OP ---
+def buscar_actas_por_op(numero_op, sheet_actas_data):
+    """Busca las imágenes del acta de entrega por número de OP"""
+    if not numero_op or not sheet_actas_data:
+        return []
+    
+    actas_df = pd.DataFrame(sheet_actas_data)
+    if actas_df.empty:
+        return []
+    
+    # Normalizar nombres de columnas
+    actas_df.columns = [col.lower().strip() for col in actas_df.columns]
+    
+    # Buscar por número de OP (puede estar en diferentes columnas)
+    op_columns = ['op', 'numero_op', 'no_op', 'orden_produccion']
+    imagenes = []
+    
+    for col in op_columns:
+        if col in actas_df.columns:
+            matching_rows = actas_df[actas_df[col].astype(str).str.strip() == str(numero_op).strip()]
+            for _, row in matching_rows.iterrows():
+                # Buscar columnas que contengan URLs de imágenes
+                for column in row.index:
+                    if 'imagen' in column.lower() or 'foto' in column.lower() or 'url' in column.lower():
+                        url = row[column]
+                        if isinstance(url, str) and url.strip() and 'drive.google.com' in url:
+                            imagenes.append({
+                                'nombre': column.replace('_', ' ').title(),
+                                'url': get_drive_direct_url(url)
+                            })
+            break
+    
+    return imagenes
 
 
 
@@ -1022,6 +1063,51 @@ if equipo_seleccionado and isinstance(equipo_seleccionado, str) and not op_row.e
                     FICHA TÉCNICA
                 </a>
             ''', unsafe_allow_html=True)
+        
+        # --- BOTÓN ACTAS DE ENTREGA ---
+        # Buscar actas de entrega por número de OP
+        if op_numero and op_numero != "No disponible":
+            imagenes_acta = buscar_actas_por_op(op_numero, sheet_actas_data)
+            if imagenes_acta:
+                st.markdown("**Actas de entrega:**")
+                
+                # Crear expander para mostrar las imágenes
+                with st.expander("📋 Ver imágenes del acta de entrega", expanded=False):
+                    st.markdown(f"**Imágenes encontradas para OP:** `{op_numero}`")
+                    
+                    # Mostrar cada imagen encontrada
+                    for i, imagen in enumerate(imagenes_acta):
+                        col1, col2 = st.columns([1, 3])
+                        with col1:
+                            st.markdown(f"**{imagen['nombre']}:**")
+                        with col2:
+                            st.markdown(f'''
+                                <a href="{imagen['url']}" target="_blank" style="
+                                    display: inline-block;
+                                    padding: 0.4em 1em;
+                                    background: #28a745;
+                                    color: white;
+                                    border: none;
+                                    border-radius: 1.2em;
+                                    text-decoration: none;
+                                    font-weight: bold;
+                                    font-size: 0.9em;
+                                    margin-bottom: 0.5em;
+                                    transition: background 0.2s;
+                                " onmouseover="this.style.background='#218838'" onmouseout="this.style.background='#28a745'">
+                                    📷 Ver Imagen
+                                </a>
+                            ''', unsafe_allow_html=True)
+                        
+                        if i < len(imagenes_acta) - 1:
+                            st.markdown("---")
+                            
+                    # Botón adicional para ver todas las imágenes en una nueva pestaña
+                    if len(imagenes_acta) > 1:
+                        st.markdown("---")
+                        urls_concatenadas = " | ".join([f"[{img['nombre']}]({img['url']})" for img in imagenes_acta])
+                        st.markdown("**Enlaces rápidos:** " + urls_concatenadas)
+        
         # Fecha de instalación
         fecha_inst = equipo_row.get("fecha_instalacion", "No disponible")
         st.markdown(f"**Fecha de instalación:** {fecha_inst}")
