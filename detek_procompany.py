@@ -252,14 +252,21 @@ def slugify_empresa(nombre):
 def buscar_actas_por_op(numero_op, sheet_actas_data):
     """Busca las imágenes del acta de entrega por número de OP"""
     if not numero_op or not sheet_actas_data:
+        st.write(f"🔍 Debug: numero_op={numero_op}, sheet_actas_data vacio={len(sheet_actas_data) == 0 if sheet_actas_data else True}")
         return []
     
     actas_df = pd.DataFrame(sheet_actas_data)
     if actas_df.empty:
+        st.write("🔍 Debug: DataFrame de actas está vacío")
         return []
+    
+    # Mostrar información de debug
+    st.write(f"🔍 Debug: Buscando OP '{numero_op}' en {len(actas_df)} registros")
+    st.write(f"🔍 Debug: Columnas disponibles: {list(actas_df.columns)}")
     
     # Normalizar nombres de columnas
     actas_df.columns = [col.lower().strip() for col in actas_df.columns]
+    st.write(f"🔍 Debug: Columnas normalizadas: {list(actas_df.columns)}")
     
     # Buscar por número de OP (puede estar en diferentes columnas)
     op_columns = ['op', 'numero_op', 'no_op', 'orden_produccion']
@@ -267,19 +274,30 @@ def buscar_actas_por_op(numero_op, sheet_actas_data):
     
     for col in op_columns:
         if col in actas_df.columns:
+            st.write(f"🔍 Debug: Revisando columna '{col}'")
+            # Mostrar algunos valores de la columna para debug
+            valores_col = actas_df[col].astype(str).str.strip().tolist()[:5]  # Primeros 5 valores
+            st.write(f"🔍 Debug: Primeros valores en '{col}': {valores_col}")
+            
             matching_rows = actas_df[actas_df[col].astype(str).str.strip() == str(numero_op).strip()]
+            st.write(f"🔍 Debug: Filas que coinciden en '{col}': {len(matching_rows)}")
+            
             for _, row in matching_rows.iterrows():
+                st.write(f"🔍 Debug: Procesando fila coincidente")
                 # Buscar columnas que contengan URLs de imágenes
                 for column in row.index:
                     if 'imagen' in column.lower() or 'foto' in column.lower() or 'url' in column.lower():
                         url = row[column]
+                        st.write(f"🔍 Debug: Encontrada columna de imagen '{column}' con valor: {url}")
                         if isinstance(url, str) and url.strip() and 'drive.google.com' in url:
                             imagenes.append({
                                 'nombre': column.replace('_', ' ').title(),
                                 'url': get_drive_direct_url(url)
                             })
+                            st.write(f"🔍 Debug: Imagen agregada: {column}")
             break
     
+    st.write(f"🔍 Debug: Total imágenes encontradas: {len(imagenes)}")
     return imagenes
 
 
@@ -1066,6 +1084,9 @@ if equipo_seleccionado and isinstance(equipo_seleccionado, str) and not op_row.e
         
         # --- BOTÓN ACTAS DE ENTREGA ---
         # Buscar actas de entrega por número de OP
+        st.write(f"🔍 Debug: op_numero obtenido del equipo: '{op_numero}'")
+        st.write(f"🔍 Debug: Tipo de op_numero: {type(op_numero)}")
+        
         if op_numero and op_numero != "No disponible":
             imagenes_acta = buscar_actas_por_op(op_numero, sheet_actas_data)
             if imagenes_acta:
