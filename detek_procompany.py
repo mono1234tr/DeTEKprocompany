@@ -252,21 +252,14 @@ def slugify_empresa(nombre):
 def buscar_actas_por_op(numero_op, sheet_actas_data):
     """Busca las imágenes del acta de entrega por número de OP"""
     if not numero_op or not sheet_actas_data:
-        st.write(f"🔍 Debug: numero_op={numero_op}, sheet_actas_data vacio={len(sheet_actas_data) == 0 if sheet_actas_data else True}")
         return []
     
     actas_df = pd.DataFrame(sheet_actas_data)
     if actas_df.empty:
-        st.write("🔍 Debug: DataFrame de actas está vacío")
         return []
-    
-    # Mostrar información de debug
-    st.write(f"🔍 Debug: Buscando OP '{numero_op}' en {len(actas_df)} registros")
-    st.write(f"🔍 Debug: Columnas disponibles: {list(actas_df.columns)}")
     
     # Normalizar nombres de columnas
     actas_df.columns = [col.lower().strip() for col in actas_df.columns]
-    st.write(f"🔍 Debug: Columnas normalizadas: {list(actas_df.columns)}")
     
     # Buscar por número de OP (puede estar en diferentes columnas)
     op_columns = ['op', 'numero_op', 'no_op', 'orden_produccion']
@@ -274,30 +267,29 @@ def buscar_actas_por_op(numero_op, sheet_actas_data):
     
     for col in op_columns:
         if col in actas_df.columns:
-            st.write(f"🔍 Debug: Revisando columna '{col}'")
-            # Mostrar algunos valores de la columna para debug
-            valores_col = actas_df[col].astype(str).str.strip().tolist()[:5]  # Primeros 5 valores
-            st.write(f"🔍 Debug: Primeros valores en '{col}': {valores_col}")
-            
             matching_rows = actas_df[actas_df[col].astype(str).str.strip() == str(numero_op).strip()]
-            st.write(f"🔍 Debug: Filas que coinciden en '{col}': {len(matching_rows)}")
             
             for _, row in matching_rows.iterrows():
-                st.write(f"🔍 Debug: Procesando fila coincidente")
-                # Buscar columnas que contengan URLs de imágenes
+                # Buscar columnas que contengan URLs (más flexible)
                 for column in row.index:
-                    if 'imagen' in column.lower() or 'foto' in column.lower() or 'url' in column.lower():
-                        url = row[column]
-                        st.write(f"🔍 Debug: Encontrada columna de imagen '{column}' con valor: {url}")
-                        if isinstance(url, str) and url.strip() and 'drive.google.com' in url:
-                            imagenes.append({
-                                'nombre': column.replace('_', ' ').title(),
-                                'url': get_drive_direct_url(url)
-                            })
-                            st.write(f"🔍 Debug: Imagen agregada: {column}")
-            break
+                    valor = row[column]
+                    # Verificar si el valor contiene un link de Google Drive
+                    if isinstance(valor, str) and valor.strip() and 'drive.google.com' in valor.lower():
+                        # Crear nombre amigable para la columna
+                        nombre_amigable = column.replace('_', ' ').replace('-', ' ').title()
+                        if 'url' in column.lower():
+                            nombre_amigable = nombre_amigable.replace('Url', '')
+                        
+                        imagenes.append({
+                            'nombre': nombre_amigable.strip(),
+                            'url': get_drive_direct_url(valor),
+                            'columna_original': column
+                        })
+            
+            # Si encontramos coincidencias en esta columna, no buscar en otras
+            if imagenes:
+                break
     
-    st.write(f"🔍 Debug: Total imágenes encontradas: {len(imagenes)}")
     return imagenes
 
 
@@ -1082,52 +1074,71 @@ if equipo_seleccionado and isinstance(equipo_seleccionado, str) and not op_row.e
                 </a>
             ''', unsafe_allow_html=True)
         
-        # --- BOTÓN ACTAS DE ENTREGA ---
+        # --- ACTAS DE ENTREGA ---
         # Buscar actas de entrega por número de OP
-        st.write(f"🔍 Debug: op_numero obtenido del equipo: '{op_numero}'")
-        st.write(f"🔍 Debug: Tipo de op_numero: {type(op_numero)}")
-        
         if op_numero and op_numero != "No disponible":
             imagenes_acta = buscar_actas_por_op(op_numero, sheet_actas_data)
             if imagenes_acta:
-                st.markdown("**Actas de entrega:**")
+                st.markdown("---")
+                st.markdown("### 📋 **Actas de Entrega**")
+                st.markdown(f"**Documentos encontrados para OP:** `{op_numero}`")
                 
-                # Crear expander para mostrar las imágenes
-                with st.expander("📋 Ver imágenes del acta de entrega", expanded=False):
-                    st.markdown(f"**Imágenes encontradas para OP:** `{op_numero}`")
+                # Mostrar los enlaces como una lista ordenada de botones
+                for i, documento in enumerate(imagenes_acta, 1):
+                    # Crear columnas para mejor distribución
+                    col1, col2 = st.columns([1, 4])
                     
-                    # Mostrar cada imagen encontrada
-                    for i, imagen in enumerate(imagenes_acta):
-                        col1, col2 = st.columns([1, 3])
-                        with col1:
-                            st.markdown(f"**{imagen['nombre']}:**")
-                        with col2:
-                            st.markdown(f'''
-                                <a href="{imagen['url']}" target="_blank" style="
+                    with col1:
+                        st.markdown(f"**{i}.**")
+                    
+                    with col2:
+                        # Determinar el tipo de documento y color del botón
+                        nombre = documento['nombre']
+                        url = documento['url']
+                        
+                        # Asignar colores según el tipo de documento
+                        if any(palabra in nombre.lower() for palabra in ['foto', 'imagen', 'picture']):
+                            color = "#28a745"  # Verde para imágenes
+                            icono = "📷"
+                        elif any(palabra in nombre.lower() for palabra in ['acta', 'documento', 'pdf']):
+                            color = "#007bff"  # Azul para documentos
+                            icono = "📄"
+                        elif any(palabra in nombre.lower() for palabra in ['video', 'mp4', 'mov']):
+                            color = "#6f42c1"  # Púrpura para videos
+                            icono = "🎥"
+                        else:
+                            color = "#fd7e14"  # Naranja para otros
+                            icono = "🔗"
+                        
+                        # Crear botón estilizado
+                        st.markdown(f"""
+                            <div style="margin-bottom: 0.5em;">
+                                <strong>{nombre}:</strong><br>
+                                <a href="{url}" target="_blank" style="
                                     display: inline-block;
-                                    padding: 0.4em 1em;
-                                    background: #28a745;
+                                    padding: 0.6em 1.5em;
+                                    background: {color};
                                     color: white;
                                     border: none;
-                                    border-radius: 1.2em;
+                                    border-radius: 25px;
                                     text-decoration: none;
                                     font-weight: bold;
                                     font-size: 0.9em;
-                                    margin-bottom: 0.5em;
-                                    transition: background 0.2s;
-                                " onmouseover="this.style.background='#218838'" onmouseout="this.style.background='#28a745'">
-                                    📷 Ver Imagen
+                                    margin-top: 0.3em;
+                                    transition: all 0.3s ease;
+                                    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                                " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 8px rgba(0,0,0,0.2)'" 
+                                   onmouseout="this.style.transform='translateY(0px)'; this.style.boxShadow='0 2px 4px rgba(0,0,0,0.1)'">
+                                    {icono} Abrir Documento
                                 </a>
-                            ''', unsafe_allow_html=True)
-                        
-                        if i < len(imagenes_acta) - 1:
-                            st.markdown("---")
-                            
-                    # Botón adicional para ver todas las imágenes en una nueva pestaña
-                    if len(imagenes_acta) > 1:
-                        st.markdown("---")
-                        urls_concatenadas = " | ".join([f"[{img['nombre']}]({img['url']})" for img in imagenes_acta])
-                        st.markdown("**Enlaces rápidos:** " + urls_concatenadas)
+                            </div>
+                        """, unsafe_allow_html=True)
+                
+                # Resumen al final
+                st.markdown("---")
+                total_docs = len(imagenes_acta)
+                st.info(f"✅ Total de documentos encontrados: **{total_docs}** para la OP **{op_numero}**")
+        
         
         # Fecha de instalación
         fecha_inst = equipo_row.get("fecha_instalacion", "No disponible")
