@@ -333,7 +333,7 @@ def buscar_actas_por_op(numero_op, sheet_actas_data):
                             'columna_original': column
                         })
                         
-                        st.success(f"  � **Link encontrado en '{column}':** {valor[:50]}...")
+                    
                 
 
             
@@ -778,53 +778,132 @@ if modo_auto:
     st.markdown(f"**Horas transcurridas hoy:** `{horas_formato}` / 7.00 h")
     st.progress(minutos_avance / 420)
 
-    # Registro automático a las 2pm para TODOS los equipos de la empresa si no existe ya
+    # Registro automático MASIVO a las 2pm para TODAS las empresas (optimización API)
     if now > end_time:
-        sheet_registro = client.open_by_key(SHEET_ID).worksheet("Hoja 1")
-        data_registro = pd.DataFrame(sheet_registro_data)
-        data_registro.columns = [col.lower().strip() for col in data_registro.columns]
-        equipos_empresa = equipos_df[equipos_df["empresa"].str.strip().str.lower() == empresa.strip().lower()]
-        registros_realizados = 0
+        # Verificar si ya se ejecutó el proceso masivo hoy
+        batch_key = f"batch_processed_{str(today)}"
+        if batch_key not in st.session_state:
+            st.session_state[batch_key] = False
+        
+        if not st.session_state[batch_key]:
+            with st.spinner("🔄 Ejecutando registro automático masivo de todas las empresas..."):
+                try:
+                    sheet_registro = client.open_by_key(SHEET_ID).worksheet("Hoja 1")
+                    data_registro = pd.DataFrame(sheet_registro_data)
+                    data_registro.columns = [col.lower().strip() for col in data_registro.columns]
+                    
+                    # Procesar TODAS las empresas
+                    total_registros = 0
+                    empresas_procesadas = 0
+                    todas_las_filas = []  # Batch de todas las filas para insertar
+                    
+                    # Obtener todas las empresas únicas
+                    empresas_unicas = empresas_df["empresa"].unique() if not empresas_df.empty else []
+                    
+                    for empresa_nombre in empresas_unicas:
+                        equipos_empresa = equipos_df[equipos_df["empresa"].str.strip().str.lower() == empresa_nombre.strip().lower()]
+                        registros_empresa = 0
+                        
+                        for _, eq_row in equipos_empresa.iterrows():
+                            codigo = eq_row["codigo"]
+                            descripcion_eq = eq_row["descripcion"]
+                            
+                            # Verificar si ya existe registro para hoy
+                            existe_registro = False
+                            if not data_registro.empty:
+                                existe_registro = (
+                                    (data_registro["empresa"].str.strip().str.lower() == empresa_nombre.strip().lower()) &
+                                    (data_registro["codigo"] == codigo) &
+                                    (data_registro["fecha"] == str(today))
+                                ).any()
+                            
+                            if not existe_registro:
+                                # Verificar si se cambió alguna parte hoy
+                                partes_cambiadas_hoy = []
+                                if not data_registro.empty:
+                                    registros_hoy = data_registro[
+                                        (data_registro["empresa"].str.strip().str.lower() == empresa_nombre.strip().lower()) &
+                                        (data_registro["codigo"] == codigo) &
+                                        (data_registro["fecha"] == str(today))
+                                    ]
+                                    if not registros_hoy.empty:
+                                        partes_cambiadas_hoy = registros_hoy["parte cambiada"].dropna().tolist()
+                                
+                                # Determinar horas de uso y parte cambiada
+                                if partes_cambiadas_hoy:
+                                    parte_cambiada = ";".join([p for p in partes_cambiadas_hoy if p])
+                                    horas_uso = 0.0
+                                else:
+                                    parte_cambiada = ""
+                                    horas_uso = 7.0
+                                
+                                # Agregar fila al batch
+                                fila = [
+                                    empresa_nombre,
+                                    str(today),
+                                    codigo,
+                                    descripcion_eq,
+                                    horas_uso,
+                                    parte_cambiada,
+                                    "Sin Observaciones"
+                                ]
+                                todas_las_filas.append(fila)
+                                registros_empresa += 1
+                        
+                        if registros_empresa > 0:
+                            empresas_procesadas += 1
+                            total_registros += registros_empresa
+                    
+                    # Insertar todas las filas en una sola operación (BATCH)
+                    if todas_las_filas:
+                        sheet_registro.append_rows(todas_las_filas)
+                        st.success(f"✅ **Registro Masivo Completado**: {total_registros} equipos de {empresas_procesadas} empresas registrados automáticamente")
+                        st.info(f"📊 **Optimización API**: Se realizó una sola operación en lote en lugar de {total_registros} llamadas individuales")
+                    else:
+                        st.info("ℹ️ Todos los registros del día ya estaban completos")
+                    
+                    # Marcar como procesado para evitar repetición
+                    st.session_state[batch_key] = True
+                    
+                except Exception as e:
+                    st.error(f"❌ Error en registro masivo: {str(e)}")
+        else:
+            st.info("✅ Registro masivo del día ya completado")
+    
+    # Mostrar registro individual para la empresa actual (solo informativo)
+    equipos_empresa = equipos_df[equipos_df["empresa"].str.strip().str.lower() == empresa.strip().lower()]
+    data_registro = pd.DataFrame(sheet_registro_data)
+    data_registro.columns = [col.lower().strip() for col in data_registro.columns]
+    registros_empresa_hoy = 0
+    if not data_registro.empty and not equipos_empresa.empty:
         for _, eq_row in equipos_empresa.iterrows():
             codigo = eq_row["codigo"]
-            descripcion_eq = eq_row["descripcion"]
-            existe_registro = False
-            if not data_registro.empty:
-                existe_registro = (
-                    (data_registro["empresa"].str.strip().str.lower() == empresa.strip().lower()) &
-                    (data_registro["codigo"] == codigo) &
-                    (data_registro["fecha"] == str(today))
-                ).any()
-            # Verificar si se cambió alguna parte hoy
-            parte_cambiada = ""
-            partes_cambiadas_hoy = []
-            if not data_registro.empty:
-                registros_hoy = data_registro[(data_registro["empresa"].str.strip().str.lower() == empresa.strip().lower()) &
-                                             (data_registro["codigo"] == codigo) &
-                                             (data_registro["fecha"] == str(today))]
-                if not registros_hoy.empty:
-                    partes_cambiadas_hoy = registros_hoy["parte cambiada"].dropna().tolist()
-            # Si hay partes cambiadas hoy, registrar y reiniciar vida útil
-            if not existe_registro:
-                if partes_cambiadas_hoy:
-                    parte_cambiada = ";".join([p for p in partes_cambiadas_hoy if p])
-                    horas_uso = 0.0
-                else:
-                    parte_cambiada = ""
-                    horas_uso = 7.0
-                fila = [
-                    empresa,
-                    str(today),
-                    codigo,
-                    descripcion_eq,
-                    horas_uso,
-                    parte_cambiada,
-                    "Sin Observaciones"
-                ]
-                sheet_registro.append_row(fila)
-                registros_realizados += 1
-        if registros_realizados > 0:
-            st.success(f"Registro automático de 7 horas guardado para {registros_realizados} equipo(s) hoy en Hoja 1.")
+            existe_registro = (
+                (data_registro["empresa"].str.strip().str.lower() == empresa.strip().lower()) &
+                (data_registro["codigo"] == codigo) &
+                (data_registro["fecha"] == str(today))
+            ).any()
+            if existe_registro:
+                registros_empresa_hoy += 1
+    
+    if registros_empresa_hoy > 0 and now > end_time:
+        st.success(f"✅ Esta empresa tiene {registros_empresa_hoy} equipo(s) ya registrados hoy")
+
+# --- INFORMACIÓN DEL SISTEMA (sidebar) ---
+st.sidebar.markdown("### ⚡ Estado del Sistema API")
+batch_key = f"batch_processed_{str(today)}"
+batch_status = st.session_state.get(batch_key, False)
+if batch_status:
+    st.sidebar.success("✅ Registro masivo completado hoy")
+elif now > end_time:
+    st.sidebar.warning("🔄 Registro masivo pendiente")
+else:
+    tiempo_restante = end_time - now
+    horas_restantes = tiempo_restante.seconds // 3600
+    minutos_restantes = (tiempo_restante.seconds % 3600) // 60
+    st.sidebar.info(f"⏱️ Registro masivo en: {horas_restantes}h {minutos_restantes}m")
+
+st.sidebar.markdown("---")
 
 # --- INFORMACIÓN DE LA EMPRESA (sidebar) ---
 st.sidebar.markdown("### 🏢 Información de la empresa seleccionada")
