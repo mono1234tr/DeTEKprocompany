@@ -110,7 +110,7 @@ def get_drive_thumbnail_url(url):
             return f"https://drive.google.com/thumbnail?id={file_id}"
     return url
 
-logo_url = get_drive_thumbnail_url("https://drive.google.com/uc?export=view&id=1NQ_sRx0rPyIj5kOPsDOJcBvBTbepcVUJ")
+logo_url = get_drive_thumbnail_url("https://drive.google.com/uc?export=view&id=1TNWW3yHkS9EGFIL3XbETPCcIDBkbQXTH")
 st.markdown(f"""
     <div style='display: flex; justify-content: center; align-items: center; margin-bottom: 1em;'>
         <img src='{logo_url}' width='180' style='display: block;'/>
@@ -662,7 +662,7 @@ for z in zonas_unicas:
         equipos_zona = equipos_df[(equipos_df["empresa"].str.strip().str.lower() == empresa.strip().lower()) & (equipos_df["zona"].str.strip().str.lower() == znorm)]
         alerta = ''
         if equipos_zona.empty:
-            alerta = ' ⚠️'
+            alerta = ' ⚠️' 
         visible = f"{zona_amigable}{alerta}"
         zonas_visibles.append(visible)
         zonas_alerta_map[visible] = z
