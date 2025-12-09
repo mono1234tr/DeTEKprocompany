@@ -1112,6 +1112,8 @@ if equipo_seleccionado and isinstance(equipo_seleccionado, str) and not op_row.e
     with st.expander("Información adicional del equipo", expanded=True):
         # Mostrar número de OP si existe
         op_numero = equipo_row.get("op", "No disponible")
+        if hasattr(op_numero,'iloc'):
+            op_numero = op_numero.iloc[0] if len(op_numero) > 0 else "No disponible"
         st.markdown(f"**Número de OP:** `{op_numero}`")
         
         # Definimos columnas solo si vamos a mostrar botones
