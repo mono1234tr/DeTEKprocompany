@@ -8,6 +8,15 @@ import gspread
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 
+# Firebase para chat en tiempo real
+from firebase_chat import (
+    inicializar_firebase,
+    enviar_mensaje as firebase_enviar_mensaje,
+    obtener_mensajes as firebase_obtener_mensajes,
+    obtener_ultimo_mensaje,
+    contar_mensajes_no_leidos
+)
+
 # Configuración de la página
 st.set_page_config(
     page_title="DeTEK PRO COMPANY",
@@ -1032,59 +1041,65 @@ with st.sidebar.expander("🔧 Registrar nuevo equipo"):
         except Exception as e:
             st.error(f"Error al registrar el equipo: {e}")
 
-# --- CHAT EN LÍNEA ENTRE APPS ---
-# --- INDICADOR DE MENSAJES NUEVOS ---
-chat_df_indicator = pd.DataFrame(sheet_chat_data)
-chat_df_indicator.columns = [col.lower().strip() for col in chat_df_indicator.columns]
-mensajes_empresa = chat_df_indicator[chat_df_indicator["empresa"] == empresa] if not chat_df_indicator.empty and "empresa" in chat_df_indicator.columns else pd.DataFrame()
-ultimo_mensaje = mensajes_empresa["fecha"].max() if not mensajes_empresa.empty and "fecha" in mensajes_empresa.columns else None
+# --- CHAT EN LÍNEA ENTRE APPS (FIREBASE - TIEMPO REAL) ---
+# Inicializar Firebase (solo una vez)
+if 'firebase_initialized' not in st.session_state:
+    inicializar_firebase()
+    st.session_state['firebase_initialized'] = True
 
-# Guardar la fecha del último mensaje leído en session_state
-if 'ultimo_mensaje_leido' not in st.session_state or st.session_state.get('empresa_chat_leido') != empresa:
-    st.session_state['ultimo_mensaje_leido'] = ultimo_mensaje
-    st.session_state['empresa_chat_leido'] = empresa
-
-hay_nuevo = False
-if ultimo_mensaje and st.session_state['ultimo_mensaje_leido']:
-    hay_nuevo = ultimo_mensaje > st.session_state['ultimo_mensaje_leido']
-elif ultimo_mensaje and not st.session_state['ultimo_mensaje_leido']:
-    hay_nuevo = True
+# Obtener mensajes no leídos para indicador
+mensajes_no_leidos = contar_mensajes_no_leidos(empresa)
+hay_nuevo = mensajes_no_leidos > 0
 
 st.sidebar.markdown("---")
 chat_title = "💬 Chat en línea"
 if hay_nuevo:
-    chat_title += " <span style='color:red;font-size:1.2em;'>●</span>"
+    chat_title += f" <span style='color:red;font-size:1.2em;'>● {mensajes_no_leidos}</span>"
 
 with st.sidebar.expander(chat_title, expanded=False):
-    chat_df = pd.DataFrame(sheet_chat_data)
-    if not chat_df.empty:
-        chat_df.columns = [col.lower().strip() for col in chat_df.columns]
-        if "empresa" in chat_df.columns and "usuario" in chat_df.columns and "mensaje" in chat_df.columns and "fecha" in chat_df.columns:
-            chat_df = chat_df[chat_df["empresa"] == empresa]
-            chat_df = chat_df.tail(30)
-            for _, row in chat_df.iterrows():
-                st.markdown(f"<span style='color:#00BDAD'><b>{row['usuario']}</b></span> <span style='color:gray;font-size:12px'>({row['fecha']})</span>: {row['mensaje']}", unsafe_allow_html=True)
-        else:
-            st.info("La hoja de chat no tiene el formato esperado. Asegúrate de que las columnas sean: fecha, usuario, mensaje, empresa.")
+    # Obtener mensajes de Firebase (tiempo real)
+    mensajes_firebase = firebase_obtener_mensajes(empresa, limite=50)
+    
+    if mensajes_firebase:
+        # Mostrar mensajes
+        for msg in mensajes_firebase:
+            usuario = msg.get('usuario', 'Anónimo')
+            fecha = msg.get('fecha', '')
+            texto = msg.get('mensaje', '')
+            
+            # Estilo diferente para soporte técnico vs cliente
+            if usuario.lower() == 'soporte tecnico':
+                color = '#00BDAD'  # Verde para soporte
+            else:
+                color = '#FFA500'  # Naranja para cliente
+            
+            st.markdown(
+                f"<span style='color:{color}'><b>{usuario}</b></span> "
+                f"<span style='color:gray;font-size:12px'>({fecha})</span>: {texto}",
+                unsafe_allow_html=True
+            )
     else:
         st.info("No hay mensajes en el chat todavía.")
+    
     st.markdown("---")
     mensaje_chat = st.text_input("Mensaje:", value="", key="chat_mensaje_company")
-    if st.button("Enviar mensaje", key="chat_enviar_company"):
-        if sheet_chat and mensaje_chat.strip():
-            sheet_chat.append_row([
-                str(datetime.now()),
-                "Soporte tecnico",  # Nombre fijo para el chat
-                mensaje_chat.strip(),
-                empresa
-            ])
-            st.success("Mensaje enviado!")
-            st.session_state['ultimo_mensaje_leido'] = str(datetime.now())
-            st.session_state['empresa_chat_leido'] = empresa
-            time.sleep(1)
+    
+    col_enviar, col_refresh = st.columns([3, 1])
+    with col_enviar:
+        if st.button("📤 Enviar", key="chat_enviar_company", use_container_width=True):
+            if mensaje_chat.strip():
+                if firebase_enviar_mensaje(empresa, "Soporte tecnico", mensaje_chat.strip()):
+                    st.success("✅ Mensaje enviado!")
+                    time.sleep(0.5)
+                    st.rerun()
+                else:
+                    st.error("❌ Error al enviar el mensaje.")
+            else:
+                st.warning("Escribe un mensaje primero.")
+    
+    with col_refresh:
+        if st.button("🔄", key="chat_refresh_company", help="Actualizar mensajes"):
             st.rerun()
-        elif not sheet_chat:
-            st.error("No se puede enviar el mensaje. La conexión con la hoja de Chat no está disponible.")
 
 # --- INFORMACIÓN MULTIMEDIA DEL EQUIPO EN EXPANDER ---
 
@@ -1112,7 +1127,8 @@ if equipo_seleccionado and isinstance(equipo_seleccionado, str) and not op_row.e
     with st.expander("Información adicional del equipo", expanded=True):
         # Mostrar número de OP si existe
         op_numero = equipo_row.get("op", "No disponible")
-        if hasattr(op_numero,'iloc'):
+        # Asegurar que op_numero sea un valor escalar
+        if hasattr(op_numero, 'iloc'):
             op_numero = op_numero.iloc[0] if len(op_numero) > 0 else "No disponible"
         st.markdown(f"**Número de OP:** `{op_numero}`")
         
