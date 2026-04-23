@@ -7,6 +7,7 @@ Este módulo maneja la conexión y operaciones del chat usando Firebase.
 import firebase_admin
 from firebase_admin import credentials, firestore
 from datetime import datetime
+import json
 import os
 
 # Variable global para controlar la inicialización
@@ -28,6 +29,11 @@ def inicializar_firebase(credentials_path: str = "firebase_credentials.json"):
     global _firebase_initialized, _firebase_last_error
     
     try:
+        if firebase_admin._apps:
+            _firebase_initialized = True
+            _firebase_last_error = ""
+            return firestore.client()
+
         if not _firebase_initialized:
             secrets_error = None
             # Intentar primero con Streamlit Secrets (para Streamlit Cloud)
@@ -35,13 +41,27 @@ def inicializar_firebase(credentials_path: str = "firebase_credentials.json"):
                 import streamlit as st
                 if "FIREBASE_CREDENTIALS" in st.secrets:
                     # Usar credenciales desde Streamlit Secrets
-                    firebase_config = dict(st.secrets["FIREBASE_CREDENTIALS"])
+                    raw_firebase_credentials = st.secrets["FIREBASE_CREDENTIALS"]
+                    if isinstance(raw_firebase_credentials, str):
+                        firebase_config = json.loads(raw_firebase_credentials)
+                    else:
+                        firebase_config = dict(raw_firebase_credentials)
+
+                    if "private_key" in firebase_config:
+                        firebase_config["private_key"] = (
+                            firebase_config["private_key"].replace("\\n", "\n").replace("\\r", "\r")
+                        )
+
                     cred = credentials.Certificate(firebase_config)
                     firebase_admin.initialize_app(cred)
                     _firebase_initialized = True
                     _firebase_last_error = ""
                     return firestore.client()
             except Exception as e:
+                if firebase_admin._apps:
+                    _firebase_initialized = True
+                    _firebase_last_error = ""
+                    return firestore.client()
                 # Si falla, intentar con archivo local
                 secrets_error = e
             
