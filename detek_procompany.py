@@ -34,7 +34,7 @@ CONTRASENA_CORRECTA = "1234"
 if 'autenticado' not in st.session_state:
     st.session_state['autenticado'] = False
 if 'idioma' not in st.session_state:
-    st.session_state['idioma'] = 'es'
+    st.session_state['idioma'] = 'Español'
 
 _LANG_COMPANY = {
     'es': {
@@ -65,16 +65,13 @@ if not st.session_state['autenticado']:
     # Selector de idioma
     col_lang, _ = st.columns([1, 3])
     with col_lang:
-        lang_opciones = {'Español': 'es', 'English': 'en'}
         lang_sel = st.selectbox(
-            _LANG_COMPANY['es']['lang_label'],
-            options=list(lang_opciones.keys()),
-            index=0 if st.session_state['idioma'] == 'es' else 1,
-            key='lang_selector_company'
+            '🌐 Idioma / Language',
+            options=['Español', 'English'],
+            key='idioma'
         )
-        st.session_state['idioma'] = lang_opciones[lang_sel]
 
-    T = _LANG_COMPANY[st.session_state['idioma']]
+    T = _LANG_COMPANY['en'] if lang_sel == 'English' else _LANG_COMPANY['es']
     st.title(T['title'])
     usuario = st.text_input(T['user'])
     contrasena = st.text_input(T['password'], type="password")
