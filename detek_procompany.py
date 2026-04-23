@@ -16,7 +16,8 @@ from firebase_chat import (
     obtener_ultimo_mensaje,
     contar_mensajes_no_leidos,
     firebase_disponible,
-    obtener_ultimo_error_firebase
+    obtener_ultimo_error_firebase,
+    normalizar_nombre_empresa
 )
 
 # Configuración de la página
