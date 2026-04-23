@@ -27,67 +27,64 @@ def inicializar_firebase(credentials_path: str = "firebase_credentials.json"):
         Cliente de Firestore o None si hay error
     """
     global _firebase_initialized, _firebase_last_error
-    
+
     try:
-        if firebase_admin._apps:
+        # Patrón oficial: get_app() lanza ValueError si NO existe app, si existe la reutiliza
+        try:
+            firebase_admin.get_app()
             _firebase_initialized = True
             _firebase_last_error = ""
             return firestore.client()
+        except ValueError:
+            pass  # No existe aún, proceder a inicializar
 
-        if not _firebase_initialized:
-            secrets_error = None
-            # Intentar primero con Streamlit Secrets (para Streamlit Cloud)
-            try:
-                import streamlit as st
-                if "FIREBASE_CREDENTIALS" in st.secrets:
-                    # Usar credenciales desde Streamlit Secrets
-                    raw_firebase_credentials = st.secrets["FIREBASE_CREDENTIALS"]
-                    if isinstance(raw_firebase_credentials, str):
-                        firebase_config = json.loads(raw_firebase_credentials)
-                    else:
-                        firebase_config = dict(raw_firebase_credentials)
+        secrets_error = None
 
-                    if "private_key" in firebase_config:
-                        firebase_config["private_key"] = (
-                            firebase_config["private_key"].replace("\\n", "\n").replace("\\r", "\r")
-                        )
+        # Intentar primero con Streamlit Secrets (para Streamlit Cloud)
+        try:
+            import streamlit as st
+            if "FIREBASE_CREDENTIALS" in st.secrets:
+                raw_firebase_credentials = st.secrets["FIREBASE_CREDENTIALS"]
+                if isinstance(raw_firebase_credentials, str):
+                    firebase_config = json.loads(raw_firebase_credentials)
+                else:
+                    firebase_config = dict(raw_firebase_credentials)
 
-                    cred = credentials.Certificate(firebase_config)
-                    firebase_admin.initialize_app(cred)
-                    _firebase_initialized = True
-                    _firebase_last_error = ""
-                    return firestore.client()
-            except Exception as e:
-                if firebase_admin._apps:
-                    _firebase_initialized = True
-                    _firebase_last_error = ""
-                    return firestore.client()
-                # Si falla, intentar con archivo local
-                secrets_error = e
-            
-            # Usar archivo local (para desarrollo)
-            if not os.path.isabs(credentials_path):
-                base_dir = os.path.dirname(os.path.abspath(__file__))
-                credentials_path = os.path.join(base_dir, credentials_path)
-            
-            if os.path.exists(credentials_path):
-                cred = credentials.Certificate(credentials_path)
+                if "private_key" in firebase_config:
+                    firebase_config["private_key"] = (
+                        firebase_config["private_key"].replace("\\n", "\n").replace("\\r", "\r")
+                    )
+
+                cred = credentials.Certificate(firebase_config)
                 firebase_admin.initialize_app(cred)
                 _firebase_initialized = True
                 _firebase_last_error = ""
+                return firestore.client()
+        except Exception as e:
+            secrets_error = e
+
+        # Usar archivo local (para desarrollo)
+        if not os.path.isabs(credentials_path):
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            credentials_path = os.path.join(base_dir, credentials_path)
+
+        if os.path.exists(credentials_path):
+            cred = credentials.Certificate(credentials_path)
+            firebase_admin.initialize_app(cred)
+            _firebase_initialized = True
+            _firebase_last_error = ""
+        else:
+            if secrets_error:
+                _firebase_last_error = (
+                    f"Error de credenciales Firebase en Streamlit Secrets: {secrets_error}"
+                )
             else:
-                if secrets_error:
-                    _firebase_last_error = (
-                        f"No se pudo inicializar con Streamlit Secrets ni con archivo local. "
-                        f"Archivo no encontrado: {credentials_path}. Error de secrets: {secrets_error}"
-                    )
-                else:
-                    _firebase_last_error = f"Archivo de credenciales no encontrado: {credentials_path}"
-                print(_firebase_last_error)
-                return None
-        
+                _firebase_last_error = f"Archivo de credenciales no encontrado: {credentials_path}"
+            print(_firebase_last_error)
+            return None
+
         return firestore.client()
-    
+
     except Exception as e:
         _firebase_last_error = f"Error al inicializar Firebase: {e}"
         print(_firebase_last_error)
