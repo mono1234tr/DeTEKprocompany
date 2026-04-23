@@ -14,7 +14,9 @@ from firebase_chat import (
     enviar_mensaje as firebase_enviar_mensaje,
     obtener_mensajes as firebase_obtener_mensajes,
     obtener_ultimo_mensaje,
-    contar_mensajes_no_leidos
+    contar_mensajes_no_leidos,
+    firebase_disponible,
+    obtener_ultimo_error_firebase
 )
 
 # Configuración de la página
@@ -28,7 +30,7 @@ st.set_page_config(
 USUARIO_CORRECTO = "admin"
 CONTRASENA_CORRECTA = "1234"
 
-if 'autenticado' not in st.session_state:
+if 'autenticado' not in st.session_state: 
     st.session_state['autenticado'] = False
 
 if not st.session_state['autenticado']:
@@ -92,7 +94,16 @@ def cached_get_all_records(sheet_key, worksheet_name):
 # --- CACHÉ PARA CLIENTE GSPREAD ---
 @st.cache_resource(show_spinner=False)
 def get_gspread_client():
-    service_account_info = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
+    # Convertir AttrDict a diccionario normal
+    service_account_info = {key: value for key, value in st.secrets["GOOGLE_CREDENTIALS"].items()}
+    
+    # La private_key en TOML tiene \n como texto literal, convertir a saltos de línea reales
+    if "private_key" in service_account_info:
+        pk = service_account_info["private_key"]
+        # Reemplazar secuencias literales \\n y \n por saltos de línea reales
+        pk = pk.replace("\\n", "\n").replace("\\r", "\r")
+        service_account_info["private_key"] = pk
+    
     SCOPE = [
         "https://www.googleapis.com/auth/drive",
         "https://www.googleapis.com/auth/spreadsheets"
@@ -1044,19 +1055,32 @@ with st.sidebar.expander("🔧 Registrar nuevo equipo"):
 # --- CHAT EN LÍNEA ENTRE APPS (FIREBASE - TIEMPO REAL) ---
 # Inicializar Firebase (solo una vez)
 if 'firebase_initialized' not in st.session_state:
-    inicializar_firebase()
-    st.session_state['firebase_initialized'] = True
+    db_firebase = inicializar_firebase()
+    st.session_state['firebase_initialized'] = db_firebase is not None
+
+firebase_ok = firebase_disponible()
 
 # Obtener mensajes no leídos para indicador
-mensajes_no_leidos = contar_mensajes_no_leidos(empresa)
+mensajes_no_leidos = contar_mensajes_no_leidos(empresa) if firebase_ok else 0
 hay_nuevo = mensajes_no_leidos > 0
 
 st.sidebar.markdown("---")
 chat_title = "💬 Chat en línea"
 if hay_nuevo:
-    chat_title += f" <span style='color:red;font-size:1.2em;'>● {mensajes_no_leidos}</span>"
+    chat_title += f" 🔴 {mensajes_no_leidos}"
 
 with st.sidebar.expander(chat_title, expanded=False):
+    # Mostrar el chat_id para debugging (normalizado)
+    chat_id_debug = empresa.strip().lower().replace(" ", "_")
+    st.caption(f"🔗 Chat ID: `{chat_id_debug}`")
+    if firebase_ok:
+        st.caption("✅ Firebase conectado")
+    else:
+        st.caption("❌ Firebase no conectado")
+        ultimo_error_firebase = obtener_ultimo_error_firebase()
+        if ultimo_error_firebase:
+            st.warning(f"Detalle: {ultimo_error_firebase}")
+    
     # Obtener mensajes de Firebase (tiempo real)
     mensajes_firebase = firebase_obtener_mensajes(empresa, limite=50)
     
