@@ -31,20 +31,60 @@ st.set_page_config(
 USUARIO_CORRECTO = "admin"
 CONTRASENA_CORRECTA = "1234"
 
-if 'autenticado' not in st.session_state: 
+if 'autenticado' not in st.session_state:
     st.session_state['autenticado'] = False
+if 'idioma' not in st.session_state:
+    st.session_state['idioma'] = 'es'
+
+_LANG_COMPANY = {
+    'es': {
+        'lang_label': '🌐 Idioma / Language',
+        'lang_es': 'Español',
+        'lang_en': 'English',
+        'title': 'Iniciar sesión en DeTEK PRO COMPANY',
+        'user': 'Usuario',
+        'password': 'Contraseña',
+        'btn': 'Ingresar',
+        'success': 'Acceso concedido. Cargando app...',
+        'error': 'Usuario o contraseña incorrectos.',
+    },
+    'en': {
+        'lang_label': '🌐 Idioma / Language',
+        'lang_es': 'Español',
+        'lang_en': 'English',
+        'title': 'Sign in to DeTEK PRO COMPANY',
+        'user': 'Username',
+        'password': 'Password',
+        'btn': 'Sign in',
+        'success': 'Access granted. Loading app...',
+        'error': 'Incorrect username or password.',
+    },
+}
 
 if not st.session_state['autenticado']:
-    st.title("Iniciar sesión en DeTEK PRO COMPANY")
-    usuario = st.text_input("Usuario")
-    contrasena = st.text_input("Contraseña", type="password")
-    if st.button("Ingresar"):
+    # Selector de idioma
+    col_lang, _ = st.columns([1, 3])
+    with col_lang:
+        lang_opciones = {'Español': 'es', 'English': 'en'}
+        lang_sel = st.selectbox(
+            _LANG_COMPANY['es']['lang_label'],
+            options=list(lang_opciones.keys()),
+            index=0 if st.session_state['idioma'] == 'es' else 1,
+            key='lang_selector_company'
+        )
+        st.session_state['idioma'] = lang_opciones[lang_sel]
+
+    T = _LANG_COMPANY[st.session_state['idioma']]
+    st.title(T['title'])
+    usuario = st.text_input(T['user'])
+    contrasena = st.text_input(T['password'], type="password")
+    if st.button(T['btn']):
         if usuario == USUARIO_CORRECTO and contrasena == CONTRASENA_CORRECTA:
             st.session_state['autenticado'] = True
-            st.success("Acceso concedido. Cargando app...")
+            st.success(T['success'])
             st.rerun()
         else:
-            st.error("Usuario o contraseña incorrectos.")
+            st.error(T['error'])
     st.stop()
 
 
