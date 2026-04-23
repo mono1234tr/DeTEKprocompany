@@ -92,18 +92,28 @@ def cached_get_all_records(sheet_key, worksheet_name):
         raise
 
 # --- CACHÉ PARA CLIENTE GSPREAD ---
-@st.cache_resource(show_spinner=False)
-def get_gspread_client():
-    # Convertir AttrDict a diccionario normal
-    service_account_info = {key: value for key, value in st.secrets["GOOGLE_CREDENTIALS"].items()}
-    
-    # La private_key en TOML tiene \n como texto literal, convertir a saltos de línea reales
+def get_google_credentials_info():
+    raw_credentials = st.secrets["GOOGLE_CREDENTIALS"]
+
+    if isinstance(raw_credentials, str):
+        service_account_info = json.loads(raw_credentials)
+    elif hasattr(raw_credentials, "items"):
+        service_account_info = {key: value for key, value in raw_credentials.items()}
+    else:
+        service_account_info = dict(raw_credentials)
+
     if "private_key" in service_account_info:
         pk = service_account_info["private_key"]
-        # Reemplazar secuencias literales \\n y \n por saltos de línea reales
         pk = pk.replace("\\n", "\n").replace("\\r", "\r")
         service_account_info["private_key"] = pk
-    
+
+    return service_account_info
+
+
+@st.cache_resource(show_spinner=False)
+def get_gspread_client():
+    service_account_info = get_google_credentials_info()
+
     SCOPE = [
         "https://www.googleapis.com/auth/drive",
         "https://www.googleapis.com/auth/spreadsheets"
@@ -217,7 +227,7 @@ if st.session_state.get('error_actas'):
     
     # Mostrar email de la cuenta de servicio para compartir
     try:
-        service_account_info = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
+        service_account_info = get_google_credentials_info()
         email_servicio = service_account_info.get("client_email", "No encontrado")
         st.info(f"📧 **Email de tu cuenta de servicio:** `{email_servicio}`")
         st.markdown("👆 **Comparte la hoja de actas con este email** (permisos de Lector)")
