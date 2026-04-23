@@ -1080,8 +1080,8 @@ if hay_nuevo:
     chat_title += f" 🔴 {mensajes_no_leidos}"
 
 with st.sidebar.expander(chat_title, expanded=False):
-    # Mostrar el chat_id para debugging (normalizado)
-    chat_id_debug = empresa.strip().lower().replace(" ", "_")
+    # Mostrar el chat_id para debugging (key real de Firestore)
+    chat_id_debug = normalizar_nombre_empresa(empresa)
     st.caption(f"🔗 Chat ID: `{chat_id_debug}`")
     if firebase_ok:
         st.caption("✅ Firebase conectado")
